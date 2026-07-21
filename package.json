@@ -1,0 +1,34 @@
+{
+  "name": "inochi",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Inochi, a self-hosted Discord leveling bot and dashboard.",
+  "license": "SEE LICENSE IN LICENSE",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "overrides": {
+    "postcss": "^8.5.10"
+  },
+  "scripts": {
+    "build": "npm run build -w @inochi/bot && npm run build -w @inochi/web",
+    "dev": "concurrently -n bot,web -c white,gray \"npm run dev -w @inochi/bot\" \"npm run dev -w @inochi/web\"",
+    "dev:bot": "npm run dev -w @inochi/bot",
+    "dev:web": "npm run dev -w @inochi/web",
+    "db:generate": "drizzle-kit generate --config drizzle.config.ts",
+    "db:migrate": "tsx packages/database/src/migrate.ts",
+    "deploy:commands": "tsx apps/bot/src/deploy.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx tests/run.ts",
+    "lint": "npm run lint -w @inochi/web"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.24",
+    "concurrently": "^9.1.2",
+    "drizzle-kit": "^0.31.4",
+    "drizzle-orm": "^0.45.2",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}

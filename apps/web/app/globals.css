@@ -1,0 +1,74 @@
+:root {
+  color-scheme: dark;
+  --background: #191919;
+  --panel: #222;
+  --panel-raised: #282828;
+  --foreground: #f0f0f0;
+  --muted: #969696;
+  --border: #383838;
+  --strong-border: #555;
+  --black: #101010;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+* { box-sizing: border-box; }
+html { background: var(--background); }
+body { margin: 0; min-height: 100vh; color: var(--foreground); background: radial-gradient(circle at 80% 0%, #272727 0, transparent 32rem), var(--background); }
+a { color: inherit; text-decoration: none; }
+button, input, select, textarea { font: inherit; }
+button, .button {
+  display: inline-flex; align-items: center; justify-content: center; gap: .5rem; min-height: 2.55rem;
+  padding: .65rem 1rem; border: 1px solid var(--border); border-radius: .5rem; color: var(--foreground);
+  background: var(--panel-raised); cursor: pointer; transition: border-color .15s, background .15s, transform .15s;
+}
+button:hover, .button:hover { border-color: var(--strong-border); background: #303030; }
+button:active, .button:active { transform: scale(.98); }
+.button.primary, button.primary { color: #151515; border-color: #f2f2f2; background: #f2f2f2; font-weight: 650; }
+.mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; letter-spacing: .08em; text-transform: uppercase; }
+.shell { width: min(1160px, calc(100% - 2rem)); margin: 0 auto; }
+.topbar { height: 4.5rem; display: flex; align-items: center; border-bottom: 1px solid var(--border); }
+.brand { display: flex; align-items: center; gap: .65rem; font-size: .78rem; }
+.brand-dot { width: .5rem; height: .5rem; border-radius: 50%; background: #f4f4f4; box-shadow: 0 0 1rem #fff8; }
+.hero { min-height: calc(100vh - 4.5rem); display: grid; grid-template-columns: 1.2fr .8fr; align-items: center; gap: 5rem; padding: 6rem 0; }
+.eyebrow { color: var(--muted); font-size: .72rem; margin-bottom: 1.25rem; }
+h1 { max-width: 760px; margin: 0; font-size: clamp(3.4rem, 8vw, 7.5rem); line-height: .91; letter-spacing: -.065em; font-weight: 630; }
+.lede { max-width: 590px; margin: 2rem 0; color: #adadad; font-size: 1.05rem; line-height: 1.7; }
+.terminal { border: 1px solid var(--border); border-radius: .7rem; overflow: hidden; background: #151515cc; box-shadow: 0 2rem 6rem #0005; }
+.terminal-head { display: flex; justify-content: space-between; padding: .8rem 1rem; border-bottom: 1px solid var(--border); color: var(--muted); font-size: .7rem; }
+.terminal-body { min-height: 19rem; padding: 1.25rem; font: .78rem/1.9 "SFMono-Regular", Consolas, monospace; color: #aaa; }
+.terminal-body strong { color: #eee; font-weight: 500; }
+.dashboard-layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); min-height: 100vh; }
+.sidebar { position: sticky; top: 0; height: 100vh; padding: 1.5rem; border-right: 1px solid var(--border); background: #171717e8; }
+.sidebar nav { display: grid; gap: .35rem; margin-top: 3rem; }
+.nav-link { padding: .7rem .8rem; border-radius: .45rem; color: var(--muted); font-size: .85rem; }
+.nav-link.active, .nav-link:hover { color: var(--foreground); background: var(--panel); }
+.dashboard-main { width: min(1050px, 100%); padding: 3rem clamp(1rem, 4vw, 4rem) 6rem; }
+.page-heading { display: flex; align-items: end; justify-content: space-between; gap: 1rem; margin-bottom: 2.5rem; }
+.page-heading h1 { font-size: clamp(2rem, 4vw, 3.2rem); letter-spacing: -.045em; }
+.page-heading p { color: var(--muted); margin: .6rem 0 0; }
+.guild-grid, .stat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.card { border: 1px solid var(--border); border-radius: .65rem; background: var(--panel); padding: 1.2rem; }
+.guild-card { min-height: 10rem; display: flex; flex-direction: column; justify-content: space-between; }
+.guild-icon { width: 2.75rem; height: 2.75rem; border-radius: .65rem; background: #343434; display: grid; place-items: center; font-weight: 700; }
+.section { margin-top: 1rem; border: 1px solid var(--border); border-radius: .65rem; overflow: hidden; background: #1d1d1d; }
+.section-head { display: flex; align-items: center; justify-content: space-between; padding: 1.1rem 1.25rem; border-bottom: 1px solid var(--border); }
+.section-head h2 { margin: 0; font-size: .78rem; font-weight: 500; }
+.section-body { padding: 1.25rem; display: grid; gap: 1.1rem; }
+.field-row { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.4fr); align-items: center; gap: 1.5rem; }
+.field-label { font-size: .9rem; }
+.field-label small { display: block; color: var(--muted); margin-top: .3rem; line-height: 1.45; }
+input, select, textarea { width: 100%; color: var(--foreground); background: #171717; border: 1px solid var(--border); border-radius: .45rem; padding: .7rem .8rem; outline: none; }
+input:focus, select:focus, textarea:focus { border-color: #777; box-shadow: 0 0 0 3px #fff1; }
+input[type="checkbox"] { width: 2.5rem; height: 1.35rem; accent-color: #eee; justify-self: end; }
+.savebar { position: sticky; bottom: 1rem; margin-top: 1.25rem; padding: .8rem; border: 1px solid var(--border); border-radius: .65rem; background: #151515ee; display: flex; justify-content: flex-end; align-items: center; gap: 1rem; box-shadow: 0 1rem 3rem #0008; }
+.status { color: var(--muted); font: .72rem monospace; }
+@media (max-width: 800px) {
+  .hero { grid-template-columns: 1fr; gap: 2rem; padding: 4rem 0; }
+  .terminal { display: none; }
+  .dashboard-layout { display: block; }
+  .sidebar { position: static; width: 100%; height: auto; border-right: 0; border-bottom: 1px solid var(--border); }
+  .sidebar nav { display: flex; overflow-x: auto; margin-top: 1.5rem; }
+  .guild-grid, .stat-grid { grid-template-columns: 1fr; }
+  .field-row { grid-template-columns: 1fr; gap: .7rem; }
+  input[type="checkbox"] { justify-self: start; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }

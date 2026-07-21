@@ -1,0 +1,7 @@
+node_modules
+json/auto
+.env
+.vscode
+.next
+dist
+*.tsbuildinfo
