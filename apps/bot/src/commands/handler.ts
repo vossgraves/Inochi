@@ -1,5 +1,8 @@
 import {
   AttachmentBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   ChatInputCommandInteraction,
   EmbedBuilder,
   GuildMember,
@@ -32,6 +35,7 @@ import { fetchMee6 } from "@inochi/importers";
 import { renderRankCard } from "@inochi/rank-card";
 import { startGame, startWordGame } from "../games";
 import { backgroundUrl, deleteBackground, uploadBackground } from "../storage";
+import { recordAudit, sendGuildLog } from "../logging";
 
 async function settingsFor(interaction: Interaction) {
   if (!interaction.guild) throw new Error("This command only works in a server");
@@ -180,11 +184,16 @@ export async function handleInteraction(interaction: Interaction) {
   if (!interaction.inGuild() || (!interaction.isChatInputCommand() && !interaction.isUserContextMenuCommand())) return;
   try {
     if (interaction.isUserContextMenuCommand()) {
+      void sendGuildLog(interaction.client, interaction.guildId!, "commandUsage", "Context command used", `<@${interaction.user.id}> used \`${interaction.commandName}\` in <#${interaction.channelId}>.`).catch(console.error);
       if (interaction.commandName === "Check XP") return showRank(interaction as unknown as ChatInputCommandInteraction, interaction.targetId);
       if (interaction.commandName === "View on leaderboard") return showTop(interaction as unknown as ChatInputCommandInteraction, interaction.targetId);
       return;
     }
     const command = interaction.commandName;
+    const managerCommands = new Set(["winner", "joinrole", "blacklist", "reset", "refresh", "addxp", "clear", "config", "rewardrole", "multiplier", "guess", "game", "xpchannel", "diagnose", "import", "setup"]);
+    if (managerCommands.has(command) && !interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) throw new Error("Manage Server permission is required");
+    void sendGuildLog(interaction.client, interaction.guildId!, "commandUsage", "Command used", `<@${interaction.user.id}> used \`/${command}\` in <#${interaction.channelId}>.`).catch(console.error);
+    if (managerCommands.has(command)) void recordAudit(interaction.guildId!, interaction.user.id, "command.admin", { command, channelId: interaction.channelId }).catch(console.error);
     if (command === "rank") return showRank(interaction);
     if (command === "top") return showTop(interaction);
     if (command === "help") return interaction.reply({
@@ -192,7 +201,7 @@ export async function handleInteraction(interaction: Interaction) {
         "**Progress** · `/rank` `/top` `/weekly` `/calculate` `/sync` `/wrapped`",
         "**Games** · `/game start` `/game status` `/guess`",
         "**Personal** · `/vote` `/privacy` `/colour` `/background`",
-        "**Configuration** · `/config` `/xpchannel` `/rewardrole` `/multiplier` `/joinrole` `/blacklist`",
+        "**Configuration** · `/setup` `/config` `/xpchannel` `/rewardrole` `/multiplier` `/joinrole` `/blacklist`",
         "**Moderation** · `/addxp` `/clear` `/reset` `/refresh` `/winner`",
         "**Migration** · `/import begin` `/import mee6` `/import review` `/import apply` `/import cancel`",
       ].join("\n"))], ephemeral: true,
@@ -200,14 +209,18 @@ export async function handleInteraction(interaction: Interaction) {
     if (command === "diagnose") {
       const guild = await settingsFor(interaction);
       const me = interaction.guild!.members.me;
+      const logChannel = guild.settings.logging.channelId ? interaction.guild!.channels.cache.get(guild.settings.logging.channelId) : null;
+      const logPermissions = me && logChannel?.isTextBased() ? logChannel.permissionsFor(me) : null;
       const missingRewards = guild.settings.rewards.filter((reward) => !interaction.guild!.roles.cache.has(reward.roleId)).length;
+      const unmanageableRewards = me ? guild.settings.rewards.filter((reward) => { const role = interaction.guild!.roles.cache.get(reward.roleId); return role && role.position >= me.roles.highest.position; }).length : guild.settings.rewards.length;
       const missingChannels = guild.settings.channelPolicy.channelIds.filter((id) => !interaction.guild!.channels.cache.has(id)).length;
       const checks = [
-        ["XP system", guild.settings.enabled], ["Send messages", me?.permissions.has(PermissionFlagsBits.SendMessages) ?? false],
-        ["Attach files", me?.permissions.has(PermissionFlagsBits.AttachFiles) ?? false], ["Manage roles", me?.permissions.has(PermissionFlagsBits.ManageRoles) ?? false],
-        ["Reward references", missingRewards === 0], ["Channel references", missingChannels === 0],
+        ["XP system", guild.settings.enabled], ["View channels", me?.permissions.has(PermissionFlagsBits.ViewChannel) ?? false], ["Send messages", me?.permissions.has(PermissionFlagsBits.SendMessages) ?? false],
+        ["Embed links", me?.permissions.has(PermissionFlagsBits.EmbedLinks) ?? false], ["Attach files", me?.permissions.has(PermissionFlagsBits.AttachFiles) ?? false], ["Manage roles", me?.permissions.has(PermissionFlagsBits.ManageRoles) ?? false],
+        ["Reward references", missingRewards === 0], ["Reward hierarchy", unmanageableRewards === 0], ["Channel references", missingChannels === 0],
+        ["Audit channel", !guild.settings.logging.channelId || Boolean(logPermissions?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks]))],
       ] as const;
-      return interaction.reply({ embeds: [new EmbedBuilder().setColor(checks.every(([, ok]) => ok) ? 0xf4f4f4 : 0x888888).setTitle("Inochi diagnostics").setDescription(checks.map(([name, ok]) => `${ok ? "✓" : "✕"} ${name}`).join("\n")).setFooter({ text: `${missingRewards} missing roles · ${missingChannels} missing channels` })], ephemeral: true });
+      return interaction.reply({ embeds: [new EmbedBuilder().setColor(checks.every(([, ok]) => ok) ? 0xf4f4f4 : 0x888888).setTitle("Inochi diagnostics").setDescription(checks.map(([name, ok]) => `${ok ? "✓" : "✕"} ${name}`).join("\n")).setFooter({ text: `${missingRewards} missing roles · ${unmanageableRewards} unmanageable roles · ${missingChannels} missing channels` })], ephemeral: true });
     }
     if (command === "privacy") {
       const value = interaction.options.getBoolean("leaderboard");
@@ -244,11 +257,11 @@ export async function handleInteraction(interaction: Interaction) {
     }
     if (command === "wrapped") {
       const year = String(new Date().getUTCFullYear());
-      const rows = await db.select().from(xpPeriods).where(and(eq(xpPeriods.userId, interaction.user.id), sql`${xpPeriods.period} like ${`${year}-%`}`, sql`length(${xpPeriods.period}) = 7`)).orderBy(desc(xpPeriods.xp));
+      const rows = await db.select().from(xpPeriods).where(and(eq(xpPeriods.guildId, interaction.guildId!), eq(xpPeriods.userId, interaction.user.id), sql`${xpPeriods.period} like ${`${year}-%`}`, sql`length(${xpPeriods.period}) = 7`)).orderBy(desc(xpPeriods.xp));
       const totalXp = rows.reduce((sum, row) => sum + row.xp, 0);
       const totalMessages = rows.reduce((sum, row) => sum + row.messages, 0);
       const best = rows[0];
-      return interaction.reply({ embeds: [new EmbedBuilder().setColor(0xf4f4f4).setTitle(`${year} Inochi Wrapped`).setDescription(`**${totalXp.toLocaleString()} XP** from **${totalMessages.toLocaleString()} messages** across ${new Set(rows.map((row) => row.guildId)).size} servers.\nMost active month: **${best?.period ?? "No activity yet"}**.`)] });
+      return interaction.reply({ embeds: [new EmbedBuilder().setColor(0xf4f4f4).setTitle(`${year} Inochi Wrapped`).setDescription(`**${totalXp.toLocaleString()} XP** from **${totalMessages.toLocaleString()} messages** in this server.\nMost active month: **${best?.period ?? "No activity yet"}**.`)], ephemeral: true });
     }
     if (command === "vote") {
       const guild = await settingsFor(interaction);
@@ -353,6 +366,10 @@ export async function handleInteraction(interaction: Interaction) {
       return interaction.editReply(`Reward roles refreshed with ${changed} role changes.`);
     }
     if (command === "config") return interaction.reply({ content: `Configure **${interaction.guild!.name}** at ${process.env.APP_URL ?? "http://localhost:3000"}/dashboard/${interaction.guildId}`, ephemeral: true });
+    if (command === "setup") {
+      const url = `${(process.env.APP_URL ?? "http://localhost:3000").replace(/\/$/, "")}/dashboard/${interaction.guildId}/setup`;
+      return interaction.reply({ content: "Use the guided setup to configure progression safely before enabling XP.", components: [new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(url).setLabel("Open setup wizard"))], ephemeral: true });
+    }
     if (command === "botstatus") return interaction.reply({ embeds: [new EmbedBuilder().setColor(0xf4f4f4).setTitle("Inochi status").addFields(
       { name: "Servers", value: interaction.client.guilds.cache.size.toLocaleString(), inline: true },
       { name: "Ping", value: `${interaction.client.ws.ping} ms`, inline: true },
@@ -427,6 +444,7 @@ export async function handleInteraction(interaction: Interaction) {
       return interaction.reply({ content: value > 0 ? `<${type === "role" ? "@&" : "#"}${entity.id}> now earns **${value}x XP**.` : "Multiplier removed.", ephemeral: true });
     }
   } catch (error) {
+    if (interaction.guildId) void sendGuildLog(interaction.client, interaction.guildId, "errors", "Command error", `\`${interaction.commandName}\` failed for <@${interaction.user.id}>.`).catch(console.error);
     await replyError(interaction, error);
   }
 }

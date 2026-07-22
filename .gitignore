@@ -1,6 +1,8 @@
 node_modules
 json/auto
 .env
+.env.*
+!.env.example
 .vscode
 .next
 dist

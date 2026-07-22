@@ -12,6 +12,8 @@ async function main() {
   assert.equal(parseGuildSettings({ leaderboard: { private: true } }).leaderboard.visibility, "members");
   assert.equal(parseGuildSettings({ curve: {} }).curve.constant, 0);
   assert.equal(parseGuildSettings({ rankCard: {} }).rankCard.avatarShape, "rounded");
+  assert.equal(parseGuildSettings({ logging: {} }).logging.levelUps, true);
+  assert.equal(parseGuildSettings({ backups: {} }).backups.cadence, "weekly");
 
   for (const level of [0, 1, 5, 25, 100, 1000]) {
     assert.equal(levelForXp(xpForLevel(level, settings), settings), level);

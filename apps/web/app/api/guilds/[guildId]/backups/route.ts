@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { desc, eq } from "@inochi/database";
-import { backupSnapshots, db } from "@inochi/database";
+import { auditLogs, backupSnapshots, db } from "@inochi/database";
 import { levelingBackupSchema } from "@inochi/core";
 import { requireGuildManager, validMutationRequest } from "../../../../../lib/auth";
 import { buildBackup, checksum } from "../../../../../lib/backups";
@@ -24,5 +24,6 @@ export async function POST(request: Request, context: { params: Promise<{ guildI
   const payload = parsed?.data ?? await buildBackup(guildId);
   if (payload.guildId !== guildId) return NextResponse.json({ error: "Backup belongs to another server" }, { status: 400 });
   const [snapshot] = await db.insert(backupSnapshots).values({ guildId, createdBy: access.session.userId, trigger: "manual", checksum: checksum(payload), payload }).returning();
+  await db.insert(auditLogs).values({ guildId, actorId: access.session.userId, action: "backup.create", metadata: { backupId: snapshot!.id, members: payload.members.length } });
   return NextResponse.json({ snapshot: { id: snapshot!.id, createdAt: snapshot!.createdAt, checksum: snapshot!.checksum }, preview: { members: payload.members.length, createdAt: payload.createdAt, settings: true } });
 }

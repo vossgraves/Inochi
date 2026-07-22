@@ -6,7 +6,7 @@ const sessionCookie = "inochi_session";
 
 function secretKey() {
   const secret = process.env.SESSION_SECRET;
-  if (!secret || secret.length < 32) throw new Error("SESSION_SECRET must contain at least 32 characters");
+  if (!secret || secret.length < 32 || secret.startsWith("replace_")) throw new Error("SESSION_SECRET must contain at least 32 random characters");
   return createHash("sha256").update(secret).digest();
 }
 
@@ -64,7 +64,7 @@ export interface DiscordGuild {
 }
 
 export async function discordGuilds(accessToken: string): Promise<DiscordGuild[]> {
-  const response = await fetch("https://discord.com/api/v10/users/@me/guilds", { headers: { authorization: `Bearer ${accessToken}` }, next: { revalidate: 15 } });
+  const response = await fetch("https://discord.com/api/v10/users/@me/guilds", { headers: { authorization: `Bearer ${accessToken}` }, cache: "no-store" });
   if (!response.ok) throw new Error("Discord guild request failed");
   return response.json();
 }
@@ -84,5 +84,6 @@ export async function requireGuildManager(guildId: string) {
 
 export function validMutationRequest(request: Request) {
   const origin = request.headers.get("origin");
-  return !origin || origin === new URL(process.env.APP_URL ?? "http://localhost:3000").origin;
+  const site = request.headers.get("sec-fetch-site");
+  return origin === new URL(process.env.APP_URL ?? "http://localhost:3000").origin && (!site || site === "same-origin");
 }

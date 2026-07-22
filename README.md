@@ -49,7 +49,7 @@ Create one Railway project with PostgreSQL and two services sourced from the rep
 5. Set `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_REDIRECT_URI`, and a 32-or-more-character `SESSION_SECRET` on the web service.
 6. Set `DISCORD_TOKEN` and `DISCORD_CLIENT_ID` on the bot service.
 7. Set `DISCORD_REDIRECT_URI` to `https://<web-domain>/api/auth/callback` and register the exact value in Discord's OAuth2 settings.
-8. Run `npm run deploy:commands` once with the bot service variables after deployment.
+8. Run `npm run deploy:commands` and `npm run deploy:emojis` once with the bot service variables after deployment.
 
 The web manifest applies database migrations before each release and checks configuration plus PostgreSQL at `/api/health`. The bot verifies PostgreSQL before connecting to Discord. Optional `TOPGG_WEBHOOK_SECRET` belongs to the web service and `TOPGG_BOT_ID` belongs to the bot service. Set the same optional `S3_*` variables on both services when dashboard rank-background uploads are enabled.
 
@@ -68,6 +68,12 @@ Inochi supports persistent image-based word and math races. Configure one to thr
 Set a top.gg webhook URL to `/api/webhooks/votes/topgg` and use `TOPGG_WEBHOOK_SECRET` as its authorization value. Verified voters receive the configured chat-XP multiplier for the configured duration. Vote boosts never alter manual or game rewards.
 
 Rank background uploads use S3-compatible storage. Configure `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, optional `S3_REGION`/`S3_ENDPOINT`, and expose objects through `S3_PUBLIC_URL`.
+
+## Setup, logs, and scheduled backups
+
+When Inochi joins a server it sends one welcome message to a writable system/setup channel, with an owner-DM fallback. `/setup` opens the guided dashboard flow; XP remains paused until a manager completes it. Application-owned emojis can be provisioned idempotently with `npm run deploy:emojis` and always have Unicode fallbacks.
+
+Managers can configure one private audit channel with independent command, level-up, admin, error, and backup toggles. Scheduled full backups can run daily or weekly, are retained in PostgreSQL for the configured period, and are sent as compressed attachments only when the channel is not visible to `@everyone` and the file fits Discord's upload limit.
 
 ## Backups
 

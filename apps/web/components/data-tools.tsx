@@ -9,6 +9,8 @@ export function DataTools({ guildId }: { guildId: string }) {
   const [restore, setRestore] = useState<{ snapshotId: string; createdAt: string; members: number } | null>(null);
   const [restoreMode, setRestoreMode] = useState<"settings" | "merge" | "replace">("merge");
   const [confirmation, setConfirmation] = useState("");
+  const [audit, setAudit] = useState<{ id: string; actorId: string; action: string; createdAt: string }[]>([]);
+  const [keys, setKeys] = useState<{ id: string; name: string; userId: string; expiresAt: string; lastUsedAt: string | null }[]>([]);
   const upload = async (file: File | undefined) => {
     if (!file) return;
     if (file.size > 10_000_000) return setStatus("File is larger than 10 MB.");
@@ -57,6 +59,23 @@ export function DataTools({ guildId }: { guildId: string }) {
     setApiKey(result.key);
     setStatus("Read-only API key created. It will only be shown here once.");
   };
+  const loadAudit = async () => {
+    const response = await fetch(`/api/guilds/${guildId}/audit`);
+    const result = await response.json();
+    if (!response.ok) return setStatus(result.error ?? "Could not load audit history");
+    setAudit(result.events);
+  };
+  const loadKeys = async () => {
+    const response = await fetch(`/api/profile/keys?guildId=${guildId}`);
+    const result = await response.json();
+    if (!response.ok) return setStatus(result.error ?? "Could not load API keys");
+    setKeys(result.keys);
+  };
+  const revokeKey = async (id: string) => {
+    const response = await fetch("/api/profile/keys", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ id }) });
+    if (!response.ok) return setStatus("Could not revoke API key");
+    setKeys((current) => current.filter((key) => key.id !== id));
+  };
   return <div className="data-tools">
     <div className="field-label">File migration<small>Legacy Polaris JSON, Lurkr JSON, or ID/XP CSV. Matching members are replaced; others remain.</small></div>
     <div className="data-tool-controls">
@@ -67,7 +86,11 @@ export function DataTools({ guildId }: { guildId: string }) {
       <button type="button" onClick={createBackup}>Create full Inochi backup</button>
       <label className="field-label">Restore full backup<input type="file" accept=".json" onChange={(event) => restoreBackup(event.target.files?.[0])} /></label>
       <button type="button" onClick={createApiKey}>Create read-only API key</button>
+      <button type="button" onClick={() => void loadAudit()}>Load recent audit history</button>
+      <button type="button" onClick={() => void loadKeys()}>Manage API keys</button>
       {apiKey && <input readOnly value={apiKey} onFocus={(event) => event.currentTarget.select()} />}
+      {audit.length > 0 && <div className="audit-list">{audit.map((event) => <div key={event.id}><strong>{event.action}</strong><span><code>{event.actorId}</code> · {new Date(event.createdAt).toLocaleString()}</span></div>)}</div>}
+      {keys.length > 0 && <div className="audit-list">{keys.map((key) => <div key={key.id}><strong>{key.name}</strong><span>Owner <code>{key.userId}</code> · expires {new Date(key.expiresAt).toLocaleDateString()}</span><button type="button" className="danger-button" onClick={() => void revokeKey(key.id)}>Revoke</button></div>)}</div>}
     </div>
     {restore && <div className="modal-backdrop" role="presentation"><div className="modal" role="dialog" aria-modal="true" aria-labelledby="restore-title"><span className="eyebrow mono">Safety restore</span><h3 id="restore-title">Review the recovery plan</h3><p>Backup from <strong>{new Date(restore.createdAt).toLocaleString()}</strong> with <strong>{restore.members.toLocaleString()} members</strong>. A pre-restore snapshot will be created automatically.</p><label>Restore mode<select value={restoreMode} onChange={(event) => setRestoreMode(event.target.value as typeof restoreMode)}><option value="merge">Merge members and settings</option><option value="settings">Settings only</option><option value="replace">Replace all leveling data</option></select></label><label>Type RESTORE to continue<input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="off" /></label><div className="modal-actions"><button type="button" onClick={() => setRestore(null)}>Cancel</button><button type="button" className="danger-button" disabled={confirmation !== "RESTORE"} onClick={confirmRestore}>Restore backup</button></div></div></div>}
   </div>;

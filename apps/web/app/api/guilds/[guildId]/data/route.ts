@@ -9,11 +9,12 @@ export async function GET(_: Request, context: { params: Promise<{ guildId: stri
   if (!access) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const guild = await getOrCreateGuild(db, guildId, access.guild.name);
   const users = await db.select().from(members).where(eq(members.guildId, guildId));
-  return NextResponse.json({ version: 2, settings: guild.settings, users: Object.fromEntries(users.map((user) => [user.userId, { xp: user.xp, cooldown: user.cooldownUntil?.getTime() ?? 0, hidden: user.hidden }])) });
+  return NextResponse.json({ version: 2, settings: guild.settings, users: Object.fromEntries(users.map((user) => [user.userId, { xp: user.xp, cooldown: user.cooldownUntil?.getTime() ?? 0, hidden: user.hidden }])) }, { headers: { "cache-control": "private, no-store" } });
 }
 
 export async function POST(request: Request, context: { params: Promise<{ guildId: string }> }) {
   if (!validMutationRequest(request)) return NextResponse.json({ error: "Invalid origin" }, { status: 403 });
+  if (Number(request.headers.get("content-length") ?? 0) > 10_000_000) return NextResponse.json({ error: "Import is larger than 10 MB" }, { status: 413 });
   const { guildId } = await context.params;
   const access = await requireGuildManager(guildId);
   if (!access) return NextResponse.json({ error: "Forbidden" }, { status: 403 });

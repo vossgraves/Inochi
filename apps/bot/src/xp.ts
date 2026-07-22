@@ -4,6 +4,7 @@ import { activeVote, claimMessageXp, db, getOrCreateGuild } from "@inochi/databa
 import { handleGuess } from "./games";
 import { syncMember } from "./commands/handler";
 import { channelAllowsXp, channelHierarchy } from "./channel-policy";
+import { sendGuildLog } from "./logging";
 
 function randomInt(min: number, max: number) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -41,6 +42,7 @@ export async function handleMessageXp(message: Message) {
   const newLevel = levelForXp(awarded.xp, settings);
   if (newLevel <= oldLevel) return;
   await syncMember(message.member).catch(() => undefined);
+  void sendGuildLog(message.client, message.guild.id, "levelUps", "Member leveled up", `<@${message.author.id}> advanced from level **${oldLevel}** to **${newLevel}** with **${awarded.xp.toLocaleString()} XP** in <#${message.channel.id}>.`).catch(console.error);
   const levelUp = settings.levelUp;
   const shouldAnnounce = levelUp.enabled && (!levelUp.rewardsOnly || settings.rewards.some((reward) => reward.level > oldLevel && reward.level <= newLevel));
   const specificMatch = !levelUp.specificLevels.length || levelUp.specificLevels.includes(newLevel);

@@ -5,7 +5,7 @@ import type { GuildSettings } from "@inochi/core";
 export const importStatus = pgEnum("import_status", ["collecting", "review", "completed", "cancelled", "expired"]);
 export const importSource = pgEnum("import_source", ["json", "csv", "mee6", "arcane", "probot", "lurkr", "amari", "tatsu", "carlbot"]);
 export const gameType = pgEnum("game_type", ["word", "math"]);
-export const backupTrigger = pgEnum("backup_trigger", ["manual", "pre_restore"]);
+export const backupTrigger = pgEnum("backup_trigger", ["manual", "pre_restore", "scheduled"]);
 
 export const guilds = pgTable("guilds", {
   id: text("id").primaryKey(),
@@ -13,6 +13,13 @@ export const guilds = pgTable("guilds", {
   icon: text("icon"),
   settings: jsonb("settings").$type<GuildSettings>().notNull(),
   settingsRevision: integer("settings_revision").default(1).notNull(),
+  joinedAt: timestamp("joined_at", { withTimezone: true }),
+  leftAt: timestamp("left_at", { withTimezone: true }),
+  welcomeSentAt: timestamp("welcome_sent_at", { withTimezone: true }),
+  welcomeChannelId: text("welcome_channel_id"),
+  welcomeMessageId: text("welcome_message_id"),
+  setupCompletedAt: timestamp("setup_completed_at", { withTimezone: true }),
+  setupVersion: integer("setup_version").default(0).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
@@ -110,6 +117,8 @@ export const backupSnapshots = pgTable("backup_snapshots", {
   formatVersion: integer("format_version").default(1).notNull(),
   checksum: text("checksum").notNull(),
   payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+  deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+  deliveryError: text("delivery_error"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [index("backup_snapshots_guild_idx").on(table.guildId, table.createdAt)]);
 
@@ -121,6 +130,8 @@ export const apiKeys = pgTable("api_keys", {
   writeAccess: boolean("write_access").default(false).notNull(),
   guildIds: jsonb("guild_ids").$type<string[]>().default([]).notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
@@ -154,6 +165,7 @@ export const auditLogs = pgTable("audit_logs", {
   actorId: text("actor_id").notNull(),
   action: text("action").notNull(),
   metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}).notNull(),
+  deliveredAt: timestamp("delivered_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [index("audit_logs_guild_idx").on(table.guildId, table.createdAt)]);
 

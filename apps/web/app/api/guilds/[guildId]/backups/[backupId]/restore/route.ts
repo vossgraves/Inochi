@@ -11,6 +11,7 @@ export async function POST(request: Request, context: { params: Promise<{ guildI
   if (!access) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const body = await request.json() as { mode?: "merge" | "replace" | "settings"; confirmation?: string };
   if (body.confirmation !== "RESTORE") return NextResponse.json({ error: "Type RESTORE to confirm" }, { status: 400 });
+  if (body.mode !== undefined && !["merge", "replace", "settings"].includes(body.mode)) return NextResponse.json({ error: "Invalid restore mode" }, { status: 400 });
   const snapshot = await db.query.backupSnapshots.findFirst({ where: and(eq(backupSnapshots.id, backupId), eq(backupSnapshots.guildId, guildId)) });
   if (!snapshot) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const payload = levelingBackupSchema.parse(snapshot.payload);

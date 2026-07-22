@@ -41,6 +41,7 @@ export const commandDefinitions = [
   new SlashCommandBuilder().setName("clear").setDescription("Clear a member's XP cooldown").setDefaultMemberPermissions(manage)
     .addUserOption((option) => option.setName("member").setDescription("Member").setRequired(true)),
   new SlashCommandBuilder().setName("config").setDescription("Open this server's dashboard").setDefaultMemberPermissions(manage),
+  new SlashCommandBuilder().setName("setup").setDescription("Open the guided server setup").setDefaultMemberPermissions(manage),
   new SlashCommandBuilder().setName("rewardrole").setDescription("Configure a level reward role").setDefaultMemberPermissions(manage)
     .addRoleOption((option) => option.setName("role").setDescription("Reward role").setRequired(true))
     .addIntegerOption((option) => option.setName("level").setDescription("Level, or 0 to remove").setMinValue(0).setRequired(true))

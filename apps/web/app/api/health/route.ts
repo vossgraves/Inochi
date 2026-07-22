@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const required = ["DATABASE_URL", "APP_URL", "DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET", "DISCORD_REDIRECT_URI", "SESSION_SECRET"] as const;
   const missing = required.filter((name) => !process.env[name]);
-  if (missing.length || (process.env.SESSION_SECRET?.length ?? 0) < 32) {
+  if (missing.length || (process.env.SESSION_SECRET?.length ?? 0) < 32 || process.env.SESSION_SECRET?.startsWith("replace_")) {
     return NextResponse.json({ status: "unhealthy", reason: "configuration" }, { status: 503 });
   }
 

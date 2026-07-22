@@ -5,6 +5,7 @@ import { authenticateApi } from "../../../../../../../lib/api-auth";
 
 export async function GET(request: Request, context: { params: Promise<{ guildId: string; userId: string }> }) {
   const { guildId, userId } = await context.params;
+  if (!/^\d{16,20}$/.test(guildId) || !/^\d{16,20}$/.test(userId)) return NextResponse.json({ error: "Invalid Discord ID" }, { status: 400 });
   if (!await authenticateApi(request, guildId)) return NextResponse.json({ error: "Unauthorized or rate limited" }, { status: 401 });
   const guild = await getOrCreateGuild(db, guildId);
   const member = await db.query.members.findFirst({ where: and(eq(members.guildId, guildId), eq(members.userId, userId)) });
@@ -14,6 +15,7 @@ export async function GET(request: Request, context: { params: Promise<{ guildId
 
 export async function PATCH(request: Request, context: { params: Promise<{ guildId: string; userId: string }> }) {
   const { guildId, userId } = await context.params;
+  if (!/^\d{16,20}$/.test(guildId) || !/^\d{16,20}$/.test(userId)) return NextResponse.json({ error: "Invalid Discord ID" }, { status: 400 });
   const key = await authenticateApi(request, guildId, true);
   if (!key) return NextResponse.json({ error: "Write access required or rate limited" }, { status: 403 });
   const body = await request.json() as { xp?: unknown };
@@ -27,6 +29,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ guild
 
 export async function DELETE(request: Request, context: { params: Promise<{ guildId: string; userId: string }> }) {
   const { guildId, userId } = await context.params;
+  if (!/^\d{16,20}$/.test(guildId) || !/^\d{16,20}$/.test(userId)) return NextResponse.json({ error: "Invalid Discord ID" }, { status: 400 });
   const key = await authenticateApi(request, guildId, true);
   if (!key) return NextResponse.json({ error: "Write access required or rate limited" }, { status: 403 });
   await db.delete(members).where(and(eq(members.guildId, guildId), eq(members.userId, userId)));

@@ -20,6 +20,7 @@
     "db:generate": "drizzle-kit generate --config drizzle.config.ts",
     "db:migrate": "tsx packages/database/src/migrate.ts",
     "deploy:commands": "tsx apps/bot/src/deploy.ts",
+    "deploy:emojis": "npm run deploy:emojis -w @inochi/bot",
     "typecheck": "tsc --noEmit",
     "test": "tsx tests/run.ts"
   },

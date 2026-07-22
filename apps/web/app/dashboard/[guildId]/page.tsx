@@ -10,7 +10,7 @@ import { DashboardShell } from "../../../components/dashboard-shell";
 const nav = [
   { href: "#overview", label: "Overview" }, { href: "#xp", label: "XP earning" }, { href: "#curve", label: "Level curve" },
   { href: "#level-up", label: "Announcements" }, { href: "#rank", label: "Rank card" }, { href: "#leaderboard", label: "Leaderboard" },
-  { href: "#games", label: "Games" }, { href: "#roles", label: "Roles & community" }, { href: "#imports", label: "Data & backups" },
+  { href: "#games", label: "Games" }, { href: "#roles", label: "Roles & community" }, { href: "#logging", label: "Logs & automation" }, { href: "#imports", label: "Data & backups" },
 ];
 
 export default async function GuildDashboard({ params }: { params: Promise<{ guildId: string }> }) {
@@ -25,6 +25,7 @@ export default async function GuildDashboard({ params }: { params: Promise<{ gui
       <div className="overview-primary"><span className="mono">System state</span><strong>{row.settings.enabled ? "Earning XP" : "Paused"}</strong><p>{row.settings.enabled ? `${row.settings.gain.min}–${row.settings.gain.max} XP every ${row.settings.gain.cooldownSeconds}s` : "Enable XP below when you are ready."}</p></div>
       <div className="overview-stats"><div><span>Curve</span><strong>{curve.strictlyIncreasing ? "Healthy" : "Review"}</strong></div><div><span>Rewards</span><strong>{row.settings.rewards.length}</strong></div><div><span>Games</span><strong>{row.settings.games.rotation.enabled ? "Auto" : "Manual"}</strong></div><div><span>Visibility</span><strong>{row.settings.leaderboard.visibility}</strong></div></div>
     </section>
+    {!row.setupCompletedAt && <div className="notice warning">This server has not completed guided setup. <Link href={`/dashboard/${guildId}/setup`}>Open the setup wizard</Link> before enabling XP.</div>}
     <SettingsForm guildId={guildId} initial={row.settings} initialRevision={row.settingsRevision} />
   </DashboardShell>;
 }

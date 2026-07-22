@@ -41,6 +41,21 @@ export const guildSettingsSchema = z.object({
     specificLevels: z.array(z.number().int().min(1).max(1_000)).max(100).default([]),
   }).default({}),
   rankCard: rankCardSettingsSchema.default({}),
+  logging: z.object({
+    channelId: z.union([snowflake, z.null()]).default(null),
+    commandUsage: z.boolean().default(false),
+    levelUps: z.boolean().default(true),
+    adminActions: z.boolean().default(true),
+    errors: z.boolean().default(true),
+    backups: z.boolean().default(true),
+  }).default({}),
+  backups: z.object({
+    enabled: z.boolean().default(false),
+    cadence: z.enum(["daily", "weekly"]).default("weekly"),
+    weekday: z.number().int().min(0).max(6).default(0),
+    hourUtc: z.number().int().min(0).max(23).default(0),
+    retentionDays: z.number().int().min(1).max(90).default(30),
+  }).default({}),
   leaderboard: z.object({
     enabled: z.boolean().default(true),
     private: z.boolean().default(false),

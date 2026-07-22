@@ -5,6 +5,7 @@ import { authenticateApi } from "../../../../../lib/api-auth";
 
 export async function GET(request: Request, context: { params: Promise<{ guildId: string }> }) {
   const { guildId } = await context.params;
+  if (!/^\d{16,20}$/.test(guildId)) return NextResponse.json({ error: "Invalid Discord ID" }, { status: 400 });
   if (!await authenticateApi(request, guildId)) return NextResponse.json({ error: "Unauthorized or rate limited" }, { status: 401 });
   const guild = await getOrCreateGuild(db, guildId);
   const url = new URL(request.url);
