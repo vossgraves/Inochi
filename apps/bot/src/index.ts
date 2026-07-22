@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { Client, GatewayIntentBits, Partials } from "discord.js";
+import { Client, Events, GatewayIntentBits, Partials } from "discord.js";
 import { db, sql } from "@inochi/database";
 import { handleInteraction } from "./commands/handler";
 import { handleMessageXp } from "./xp";
@@ -19,7 +19,7 @@ const client = new Client({
   allowedMentions: { parse: ["users"] },
 });
 
-client.once("ready", (readyClient) => {
+client.once(Events.ClientReady, (readyClient) => {
   console.log(`Inochi online as ${readyClient.user.tag} in ${readyClient.guilds.cache.size} servers.`);
   if (readyClient.user.username !== "Inochi") void readyClient.user.setUsername("Inochi").catch((error) => console.warn("Could not update the Discord username to Inochi:", error));
   scheduleGames(readyClient);
