@@ -2,6 +2,19 @@ import { z } from "zod";
 
 const snowflake = z.string().regex(/^\d{16,20}$/);
 
+export const rankCardSettingsSchema = z.object({
+  enabled: z.boolean().default(true),
+  ephemeral: z.boolean().default(false),
+  showCooldown: z.boolean().default(true),
+  relativeXp: z.boolean().default(true),
+  accentColor: z.string().regex(/^#[0-9a-f]{6}$/i).default("#8ba8ff"),
+  backgroundKey: z.string().min(1).max(500).nullable().default(null),
+  backgroundOverlay: z.number().min(0).max(0.95).default(0.86),
+  avatarShape: z.enum(["rounded", "circle", "square"]).default("rounded"),
+  surface: z.enum(["technical", "clean"]).default("technical"),
+  progressStyle: z.enum(["solid", "glow"]).default("glow"),
+});
+
 export const guildSettingsSchema = z.object({
   enabled: z.boolean().default(false),
   gain: z.object({
@@ -10,9 +23,10 @@ export const guildSettingsSchema = z.object({
     cooldownSeconds: z.number().min(0).max(31_536_000).default(60),
   }).default({}),
   curve: z.object({
-    cubic: z.number().min(0).max(100).default(1),
-    quadratic: z.number().min(0).max(10_000).default(50),
-    linear: z.number().min(0).max(100_000).default(100),
+    constant: z.number().min(-1_000_000).max(1_000_000).default(0),
+    cubic: z.number().min(-100).max(100).default(1),
+    quadratic: z.number().min(-10_000).max(10_000).default(50),
+    linear: z.number().min(-100_000).max(100_000).default(100),
     rounding: z.number().int().min(1).max(1_000).default(100),
     maxLevel: z.number().int().min(1).max(1_000).default(1_000),
   }).default({}),
@@ -26,12 +40,7 @@ export const guildSettingsSchema = z.object({
     minimumLevel: z.number().int().min(0).max(1_000).default(0),
     specificLevels: z.array(z.number().int().min(1).max(1_000)).max(100).default([]),
   }).default({}),
-  rankCard: z.object({
-    enabled: z.boolean().default(true),
-    ephemeral: z.boolean().default(false),
-    showCooldown: z.boolean().default(true),
-    relativeXp: z.boolean().default(true),
-  }).default({}),
+  rankCard: rankCardSettingsSchema.default({}),
   leaderboard: z.object({
     enabled: z.boolean().default(true),
     private: z.boolean().default(false),

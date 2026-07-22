@@ -2,11 +2,13 @@
 
 import { Children, cloneElement, isValidElement, useId, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
-import { analyzeCurve } from "@inochi/core";
+import { analyzeCurve, applyLevelingPreset, detectLevelingPreset, levelingPresets } from "@inochi/core";
+import type { LevelingPresetName } from "@inochi/core";
 import type { GuildSettings } from "@inochi/core";
 import { RotateCcw, Save } from "lucide-react";
 import { DataTools } from "./data-tools";
 import { CurvePreview } from "./curve-preview";
+import { RankCardEditor } from "./rank-card-editor";
 
 interface Props { guildId: string; initial: GuildSettings; initialRevision: number }
 
@@ -59,9 +61,16 @@ export function SettingsForm({ guildId, initial, initialRevision }: Props) {
   const word = settings.games.wordRace;
   const math = settings.games.mathRace;
   const curveDiagnostics = analyzeCurve(settings);
+  const activePreset = detectLevelingPreset(settings);
   const averageGain = Math.round((settings.gain.min + settings.gain.max) / 2 * settings.multipliers.global);
+  const applyPreset = (name: LevelingPresetName) => {
+    setSettings((current) => applyLevelingPreset(current, name));
+    setStatus(`${levelingPresets[name].label} preset ready to review`);
+    setDirty(true);
+  };
   return <>
     <Section label="xp" title="XP earning" description="Control where ordinary activity becomes progression and how often members can earn.">
+      <div className="preset-panel"><div><span className="kicker mono">Complete presets</span><p>Apply message XP, cooldown, multiplier, and exact level thresholds together. Nothing changes until you save.</p></div><div className="preset-grid">{(Object.entries(levelingPresets) as [LevelingPresetName, (typeof levelingPresets)[LevelingPresetName]][]).map(([name, preset]) => <button type="button" className={activePreset === name ? "selected" : ""} key={name} onClick={() => applyPreset(name)}><strong>{preset.label}</strong><span>{preset.description}</span></button>)}</div>{activePreset === "custom" && <span className="status">Custom XP configuration</span>}</div>
       <Row title="Enable XP" description="Award XP for eligible server messages."><Toggle checked={settings.enabled} onChange={(value) => set((draft) => { draft.enabled = value; })} /></Row>
       <Row title="Minimum XP" description="Smallest base award per cooldown."><NumberField value={settings.gain.min} min={0} max={5000} onChange={(value) => set((draft) => { draft.gain.min = value; })} /></Row>
       <Row title="Maximum XP" description="Largest base award per cooldown."><NumberField value={settings.gain.max} min={0} max={5000} onChange={(value) => set((draft) => { draft.gain.max = value; })} /></Row>
@@ -77,9 +86,10 @@ export function SettingsForm({ guildId, initial, initialRevision }: Props) {
     <Section label="curve" title="Level curve" description="Shape every threshold with a live preview driven by the exact same math as the bot.">
       <CurvePreview settings={settings} />
       <div className="metric-strip"><div><span>Average award</span><strong>{averageGain.toLocaleString()} XP</strong></div><div><span>Level cap</span><strong>{settings.curve.maxLevel}</strong></div><div><span>Curve state</span><strong>{curveDiagnostics.strictlyIncreasing ? "Healthy" : "Needs review"}</strong></div></div>
-      <Row title="Cubic coefficient" description="The L³ term in the XP curve."><NumberField value={settings.curve.cubic} min={0} max={100} step={.01} onChange={(value) => set((draft) => { draft.curve.cubic = value; })} /></Row>
-      <Row title="Quadratic coefficient" description="The L² term in the XP curve."><NumberField value={settings.curve.quadratic} min={0} max={10000} step={.01} onChange={(value) => set((draft) => { draft.curve.quadratic = value; })} /></Row>
-      <Row title="Linear coefficient" description="The L term in the XP curve."><NumberField value={settings.curve.linear} min={0} max={100000} step={.01} onChange={(value) => set((draft) => { draft.curve.linear = value; })} /></Row>
+      <Row title="Constant coefficient" description="The fixed c₀ term used by imported bot formulas."><NumberField value={settings.curve.constant} min={-1000000} max={1000000} step={.01} onChange={(value) => set((draft) => { draft.curve.constant = value; })} /></Row>
+      <Row title="Cubic coefficient" description="The L³ term in the XP curve."><NumberField value={settings.curve.cubic} min={-100} max={100} step={.01} onChange={(value) => set((draft) => { draft.curve.cubic = value; })} /></Row>
+      <Row title="Quadratic coefficient" description="The L² term in the XP curve."><NumberField value={settings.curve.quadratic} min={-10000} max={10000} step={.01} onChange={(value) => set((draft) => { draft.curve.quadratic = value; })} /></Row>
+      <Row title="Linear coefficient" description="The L term in the XP curve."><NumberField value={settings.curve.linear} min={-100000} max={100000} step={.01} onChange={(value) => set((draft) => { draft.curve.linear = value; })} /></Row>
       <Row title="Round requirements" description="Round level thresholds to this interval."><NumberField value={settings.curve.rounding} min={1} max={1000} onChange={(value) => set((draft) => { draft.curve.rounding = value; })} /></Row>
       <Row title="Maximum level" description="Hard level cap for this server."><NumberField value={settings.curve.maxLevel} min={1} max={1000} onChange={(value) => set((draft) => { draft.curve.maxLevel = value; })} /></Row>
     </Section>
@@ -94,7 +104,7 @@ export function SettingsForm({ guildId, initial, initialRevision }: Props) {
       <Row title="Specific announcement levels" description="Comma-separated levels; empty allows every level."><input value={settings.levelUp.specificLevels.join(", ")} onChange={(event) => set((draft) => { draft.levelUp.specificLevels = event.target.value.split(",").map(Number).filter((value) => Number.isInteger(value) && value > 0); })} /></Row>
     </Section>
     <Section label="rank" title="Rank card" description="Choose how member progress appears when someone runs /rank.">
-      <div className="rank-preview"><div className="rank-preview-avatar">IN</div><div className="rank-preview-body"><div className="rank-preview-title"><strong>Member preview</strong><span><small>LEVEL</small> 28</span></div><div className="rank-preview-meta"><span>RANK <b>#12</b></span><span><b>38,351</b> TOTAL XP</span></div><div className="rank-preview-track"><i /></div><div className="rank-preview-foot"><span>3,051 / 4,000 THIS LEVEL</span><span>949 XP TO LEVEL 29</span></div></div></div>
+      <RankCardEditor guildId={guildId} value={settings.rankCard} onChange={(value) => set((draft) => { draft.rankCard = value; })} />
       <Row title="Image rank card" description="Return the monochrome image from /rank."><Toggle checked={settings.rankCard.enabled} onChange={(value) => set((draft) => { draft.rankCard.enabled = value; })} /></Row>
       <Row title="Private by default" description="Make rank responses ephemeral."><Toggle checked={settings.rankCard.ephemeral} onChange={(value) => set((draft) => { draft.rankCard.ephemeral = value; })} /></Row>
       <Row title="Show cooldown" description="Expose remaining earning cooldown."><Toggle checked={settings.rankCard.showCooldown} onChange={(value) => set((draft) => { draft.rankCard.showCooldown = value; })} /></Row>

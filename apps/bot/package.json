@@ -10,11 +10,11 @@
     "start": "tsx src/index.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.758.0",
     "@inochi/core": "*",
     "@inochi/database": "*",
     "@inochi/importers": "*",
     "@inochi/rank-card": "*",
+    "@inochi/storage": "*",
     "discord.js": "^14.18.0",
     "dotenv": "^16.4.7"
   }

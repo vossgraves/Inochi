@@ -51,7 +51,7 @@ Create one Railway project with PostgreSQL and two services sourced from the rep
 7. Set `DISCORD_REDIRECT_URI` to `https://<web-domain>/api/auth/callback` and register the exact value in Discord's OAuth2 settings.
 8. Run `npm run deploy:commands` once with the bot service variables after deployment.
 
-The web manifest applies database migrations before each release and checks configuration plus PostgreSQL at `/api/health`. The bot verifies PostgreSQL before connecting to Discord. Optional `TOPGG_WEBHOOK_SECRET` belongs to the web service; optional `TOPGG_BOT_ID` and `S3_*` variables belong to the bot service.
+The web manifest applies database migrations before each release and checks configuration plus PostgreSQL at `/api/health`. The bot verifies PostgreSQL before connecting to Discord. Optional `TOPGG_WEBHOOK_SECRET` belongs to the web service and `TOPGG_BOT_ID` belongs to the bot service. Set the same optional `S3_*` variables on both services when dashboard rank-background uploads are enabled.
 
 The web build intentionally opens no database connection. The connection is created lazily when Railway starts serving requests.
 
@@ -67,7 +67,7 @@ Inochi supports persistent image-based word and math races. Configure one to thr
 
 Set a top.gg webhook URL to `/api/webhooks/votes/topgg` and use `TOPGG_WEBHOOK_SECRET` as its authorization value. Verified voters receive the configured chat-XP multiplier for the configured duration. Vote boosts never alter manual or game rewards.
 
-Rank background uploads use S3-compatible storage. Configure the `S3_*` variables and expose objects through `S3_PUBLIC_URL`.
+Rank background uploads use S3-compatible storage. Configure `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, optional `S3_REGION`/`S3_ENDPOINT`, and expose objects through `S3_PUBLIC_URL`.
 
 ## Backups
 

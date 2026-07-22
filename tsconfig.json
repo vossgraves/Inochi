@@ -15,7 +15,8 @@
       "@inochi/core": ["packages/core/src/index.ts"],
       "@inochi/database": ["packages/database/src/index.ts"],
       "@inochi/importers": ["packages/importers/src/index.ts"],
-      "@inochi/rank-card": ["packages/rank-card/src/index.ts"]
+      "@inochi/rank-card": ["packages/rank-card/src/index.ts"],
+      "@inochi/storage": ["packages/storage/src/index.ts"]
     }
   },
   "include": ["apps/**/*.ts", "apps/**/*.tsx", "packages/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts", "drizzle.config.ts"],

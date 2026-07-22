@@ -22,9 +22,11 @@ function normalizedXp(xp: number): number {
 
 export function xpForLevel(level: number, settings: GuildSettings): number {
   const safeLevel = normalizedLevel(level, settings);
-  const { cubic, quadratic, linear, rounding } = settings.curve;
-  const raw = cubic * safeLevel ** 3 + quadratic * safeLevel ** 2 + linear * safeLevel;
-  return rounding > 1 ? Math.round(raw / rounding) * rounding : Math.round(raw);
+  if (safeLevel === 0) return 0;
+  const { constant, cubic, quadratic, linear, rounding } = settings.curve;
+  const raw = constant + cubic * safeLevel ** 3 + quadratic * safeLevel ** 2 + linear * safeLevel;
+  const rounded = rounding > 1 ? Math.round(raw / rounding) * rounding : Math.round(raw);
+  return Math.max(0, rounded);
 }
 
 export function xpBetweenLevels(level: number, settings: GuildSettings): number {

@@ -68,8 +68,12 @@ async function showRank(interaction: ChatInputCommandInteraction, forcedUserId?:
     currentLevelXp: guild.settings.rankCard.relativeXp ? progress.current : 0,
     nextLevelXp: progress.next,
     progress: progress.progress,
-    accentColor: profile?.color ?? undefined,
-    backgroundUrl: backgroundUrl(profile?.backgroundKey),
+    accentColor: profile?.colorMode === "custom" && profile.color ? profile.color : guild.settings.rankCard.accentColor,
+    backgroundUrl: backgroundUrl(profile?.backgroundKey ?? guild.settings.rankCard.backgroundKey),
+    backgroundOverlay: guild.settings.rankCard.backgroundOverlay,
+    avatarShape: guild.settings.rankCard.avatarShape,
+    surface: guild.settings.rankCard.surface,
+    progressStyle: guild.settings.rankCard.progressStyle,
   });
   const cooldown = rank.cooldownUntil && rank.cooldownUntil > new Date() ? `<t:${Math.floor(rank.cooldownUntil.getTime() / 1000)}:R>` : "ready";
   await interaction.editReply({ content: guild.settings.rankCard.showCooldown ? `XP cooldown: ${cooldown}` : undefined, files: [new AttachmentBuilder(image, { name: "rank.png" })] });
