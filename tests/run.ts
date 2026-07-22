@@ -11,7 +11,7 @@ async function main() {
   assert.equal(settings.channelPolicy.mode, "denylist");
   assert.equal(settings.multipliers.vote.multiplier, 1.2);
   assert.equal(parseGuildSettings({ leaderboard: { private: true } }).leaderboard.visibility, "members");
-  assert.equal(parseGuildSettings({ curve: {} }).curve.constant, 0);
+  assert.equal(parseGuildSettings({ curve: {} }).curve.constant, 150);
   assert.equal(parseGuildSettings({ rankCard: {} }).rankCard.avatarShape, "rounded");
   assert.equal(parseGuildSettings({ logging: {} }).logging.levelUps, true);
   assert.equal(parseGuildSettings({ backups: {} }).backups.cadence, "weekly");

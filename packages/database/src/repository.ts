@@ -1,7 +1,8 @@
-import { and, desc, eq, gt, gte, isNull, lt, or, sql } from "drizzle-orm";
-import { defaultGuildSettings, parseGuildSettings } from "@inochi/core";
+import { and, desc, eq, gt, gte, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { randomInt } from "node:crypto";
+import { defaultGuildSettings, MAX_COINFLIP_WAGER, parseGuildSettings } from "@inochi/core";
 import type { Database } from "./client";
-import { externalVotes, gameRounds, gameWinners, guilds, importEntries, importSessions, members, xpPeriods } from "./schema";
+import { auditLogs, coinflipChallenges, externalVotes, gameRounds, gameWinners, guilds, importEntries, importSessions, members, xpPeriods } from "./schema";
 
 function periodKeys(now = new Date()) {
   const day = now.toISOString().slice(0, 10);
@@ -130,6 +131,139 @@ export async function claimGameWinner(db: Database, input: { roundId: string; us
   });
 }
 
+export type CoinflipSide = "heads" | "tails";
+
+export interface CreateCoinflipChallengeInput {
+  interactionKey: string;
+  guildId: string;
+  channelId: string;
+  messageId?: string;
+  challengerId: string;
+  opponentId: string;
+  wager: number;
+  challengerSide: CoinflipSide;
+  expiresAt: Date;
+}
+
+function validateCoinflipWager(wager: number) {
+  if (!Number.isSafeInteger(wager) || wager <= 0 || wager > MAX_COINFLIP_WAGER) {
+    throw new Error("Coinflip wager must be a positive safe integer");
+  }
+}
+
+export async function createCoinflipChallenge(db: Database, input: CreateCoinflipChallengeInput) {
+  validateCoinflipWager(input.wager);
+  if (input.challengerId === input.opponentId) throw new Error("You cannot challenge yourself");
+  if (input.expiresAt.getTime() <= Date.now()) throw new Error("Coinflip challenge expiry must be in the future");
+
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${input.interactionKey}))`);
+    const existing = await tx.query.coinflipChallenges.findFirst({ where: eq(coinflipChallenges.interactionKey, input.interactionKey) });
+    if (existing) {
+      const matches = existing.guildId === input.guildId && existing.channelId === input.channelId
+        && existing.challengerId === input.challengerId && existing.opponentId === input.opponentId
+        && existing.wager === input.wager && existing.challengerSide === input.challengerSide;
+      if (!matches) throw new Error("Coinflip idempotency key was reused with different challenge data");
+      return existing;
+    }
+    await tx.execute(sql`select id from guilds where id = ${input.guildId} for share`);
+    const guild = await tx.query.guilds.findFirst({ where: eq(guilds.id, input.guildId) });
+    if (!guild) throw new Error("Guild not found");
+    const settings = parseGuildSettings(guild.settings);
+    if (!settings.enabled) throw new Error("XP is disabled in this server");
+    if (!settings.games.coinflip.enabled) throw new Error("Coinflip is disabled in this server");
+    if (input.wager < settings.games.coinflip.minWager || input.wager > settings.games.coinflip.maxWager) throw new Error("Coinflip wager is outside this server's configured limits");
+    const challenger = await tx.query.members.findFirst({
+      where: and(eq(members.guildId, input.guildId), eq(members.userId, input.challengerId), gte(members.xp, input.wager)),
+    });
+    if (!challenger) throw new Error("Challenger has insufficient XP for this wager");
+    const [challenge] = await tx.insert(coinflipChallenges).values(input).returning();
+    if (!challenge) throw new Error("Could not create coinflip challenge");
+    return challenge;
+  });
+}
+
+export interface AcceptCoinflipChallengeInput {
+  challengeId: string;
+  opponentId: string;
+  guildId: string;
+  channelId: string;
+}
+
+export async function acceptCoinflipChallenge(
+  db: Database,
+  input: AcceptCoinflipChallengeInput,
+  drawSide: () => CoinflipSide = () => randomInt(2) === 0 ? "heads" : "tails",
+) {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${input.challengeId}))`);
+    let challenge = await tx.query.coinflipChallenges.findFirst({ where: eq(coinflipChallenges.id, input.challengeId) });
+    if (!challenge) throw new Error("Coinflip challenge not found");
+    if (challenge.guildId !== input.guildId || challenge.channelId !== input.channelId) throw new Error("This coinflip belongs to another channel");
+    if (challenge.opponentId !== input.opponentId) throw new Error("Only the challenged opponent can accept this coinflip");
+    if (challenge.status === "completed") return { challenge, idempotent: true };
+    if (challenge.status !== "pending") throw new Error(`Coinflip challenge is ${challenge.status}`);
+    const resolvedAt = new Date();
+    if (challenge.expiresAt <= resolvedAt) {
+      const [expired] = await tx.update(coinflipChallenges).set({ status: "expired", resolvedAt })
+        .where(and(eq(coinflipChallenges.id, challenge.id), eq(coinflipChallenges.status, "pending"))).returning();
+      if (!expired) throw new Error("Coinflip challenge is no longer pending");
+      return { challenge: expired, idempotent: false };
+    }
+    validateCoinflipWager(challenge.wager);
+    await tx.execute(sql`select id from guilds where id = ${challenge.guildId} for share`);
+    const guild = await tx.query.guilds.findFirst({ where: eq(guilds.id, challenge.guildId) });
+    if (!guild) throw new Error("Guild not found");
+    const settings = parseGuildSettings(guild.settings);
+    if (!settings.enabled) throw new Error("XP is disabled in this server");
+    if (!settings.games.coinflip.enabled) throw new Error("Coinflip is disabled in this server");
+    if (challenge.wager < settings.games.coinflip.minWager || challenge.wager > settings.games.coinflip.maxWager) throw new Error("Coinflip wager is outside this server's configured limits");
+
+    await tx.execute(sql`select user_id from members where guild_id = ${challenge.guildId} and user_id in (${challenge.challengerId}, ${challenge.opponentId}) order by user_id for update`);
+    const [challenger] = await tx.update(members).set({ xp: sql`${members.xp} - ${challenge.wager}`, updatedAt: resolvedAt })
+      .where(and(eq(members.guildId, challenge.guildId), eq(members.userId, challenge.challengerId), gte(members.xp, challenge.wager), lte(members.xp, Number.MAX_SAFE_INTEGER - challenge.wager))).returning();
+    if (!challenger) throw new Error("Challenger has insufficient XP for this wager");
+    const [opponent] = await tx.update(members).set({ xp: sql`${members.xp} - ${challenge.wager}`, updatedAt: resolvedAt })
+      .where(and(eq(members.guildId, challenge.guildId), eq(members.userId, challenge.opponentId), gte(members.xp, challenge.wager), lte(members.xp, Number.MAX_SAFE_INTEGER - challenge.wager))).returning();
+    if (!opponent) throw new Error("Opponent has insufficient XP for this wager");
+
+    const outcome = drawSide();
+    if (outcome !== "heads" && outcome !== "tails") throw new Error("Coinflip outcome source returned an invalid side");
+    const winnerId = outcome === challenge.challengerSide ? challenge.challengerId : challenge.opponentId;
+    const [winner] = await tx.update(members).set({ xp: sql`${members.xp} + ${challenge.wager * 2}`, updatedAt: resolvedAt })
+      .where(and(eq(members.guildId, challenge.guildId), eq(members.userId, winnerId))).returning();
+    if (!winner) throw new Error("Could not credit coinflip winner");
+    const [completed] = await tx.update(coinflipChallenges).set({ status: "completed", outcome, winnerId, resolvedAt })
+      .where(and(eq(coinflipChallenges.id, challenge.id), eq(coinflipChallenges.status, "pending"))).returning();
+    if (!completed) throw new Error("Coinflip challenge was resolved concurrently");
+    challenge = completed;
+    return { challenge, winner, idempotent: false };
+  });
+}
+
+export async function declineCoinflipChallenge(db: Database, input: { challengeId: string; opponentId: string; guildId: string; channelId: string }) {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${input.challengeId}))`);
+    const challenge = await tx.query.coinflipChallenges.findFirst({ where: eq(coinflipChallenges.id, input.challengeId) });
+    if (!challenge) throw new Error("Coinflip challenge not found");
+    if (challenge.guildId !== input.guildId || challenge.channelId !== input.channelId) throw new Error("This coinflip belongs to another channel");
+    if (challenge.opponentId !== input.opponentId) throw new Error("Only the challenged opponent can decline this coinflip");
+    if (challenge.status === "declined") return challenge;
+    if (challenge.status !== "pending") throw new Error(`Coinflip challenge is ${challenge.status}`);
+    const resolvedAt = new Date();
+    const status = challenge.expiresAt <= resolvedAt ? "expired" : "declined";
+    const [resolved] = await tx.update(coinflipChallenges).set({ status, resolvedAt })
+      .where(and(eq(coinflipChallenges.id, challenge.id), eq(coinflipChallenges.status, "pending"))).returning();
+    if (!resolved) throw new Error("Coinflip challenge was resolved concurrently");
+    return resolved;
+  });
+}
+
+export async function expireCoinflipChallenges(db: Database, now = new Date()) {
+  return db.update(coinflipChallenges).set({ status: "expired", resolvedAt: now })
+    .where(and(eq(coinflipChallenges.status, "pending"), lte(coinflipChallenges.expiresAt, now))).returning();
+}
+
 export async function registerVote(db: Database, input: { userId: string; durationHours: number; test?: boolean }) {
   const votedAt = new Date();
   const expiresAt = new Date(votedAt.getTime() + input.durationHours * 3_600_000);
@@ -147,16 +281,21 @@ export async function expireImports(db: Database) {
     .where(and(eq(importSessions.status, "collecting"), lt(importSessions.expiresAt, new Date())));
 }
 
-export async function applyImport(db: Database, sessionId: string) {
+export async function applyImport(db: Database, input: { sessionId: string; actorId: string; approximateXp?: (level: number) => number; includeUser?: (userId: string) => boolean }) {
   return db.transaction(async (tx) => {
-    const session = await tx.query.importSessions.findFirst({ where: and(eq(importSessions.id, sessionId), or(eq(importSessions.status, "review"), eq(importSessions.status, "collecting"))) });
+    const [session] = await tx.update(importSessions).set({ status: "completed", updatedAt: new Date() })
+      .where(and(eq(importSessions.id, input.sessionId), eq(importSessions.status, "review"), gt(importSessions.expiresAt, new Date()))).returning();
     if (!session) throw new Error("Import session is not available");
-    const entries = await tx.select().from(importEntries).where(eq(importEntries.sessionId, sessionId));
+    const entries = await tx.select().from(importEntries).where(eq(importEntries.sessionId, input.sessionId));
+    let imported = 0;
     for (const entry of entries) {
-      await tx.insert(members).values({ guildId: session.guildId, userId: entry.userId, xp: entry.xp, weeklyXp: 0 })
-        .onConflictDoUpdate({ target: [members.guildId, members.userId], set: { xp: entry.xp, updatedAt: new Date() } });
+      if (input.includeUser && !input.includeUser(entry.userId)) continue;
+      const xp = !entry.exact && entry.level !== null && input.approximateXp ? input.approximateXp(entry.level) : entry.xp;
+      await tx.insert(members).values({ guildId: session.guildId, userId: entry.userId, xp, weeklyXp: 0 })
+        .onConflictDoUpdate({ target: [members.guildId, members.userId], set: { xp, updatedAt: new Date() } });
+      imported += 1;
     }
-    await tx.update(importSessions).set({ status: "completed", updatedAt: new Date() }).where(eq(importSessions.id, sessionId));
-    return entries.length;
+    await tx.insert(auditLogs).values({ guildId: session.guildId, actorId: input.actorId, action: "xp.import", metadata: { source: session.source, count: imported } });
+    return imported;
   });
 }

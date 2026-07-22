@@ -10,6 +10,7 @@ import { scheduleBackups } from "./backups";
 import { loadApplicationEmojis } from "./emojis";
 import { registerWelcomeEvents } from "./welcome";
 import { scheduleAuditDelivery } from "./logging";
+import { expireCoinflips } from "./coinflip";
 
 if (!process.env.DISCORD_TOKEN || !process.env.DATABASE_URL || !process.env.APP_URL) {
   throw new Error("DISCORD_TOKEN, DATABASE_URL, and APP_URL are required");
@@ -27,6 +28,9 @@ client.once(Events.ClientReady, async (readyClient) => {
   console.log(`Inochi online as ${readyClient.user.tag} in ${readyClient.guilds.cache.size} servers.`);
   if (readyClient.user.username !== "Inochi") void readyClient.user.setUsername("Inochi").catch((error) => console.warn("Could not update the Discord username to Inochi:", error));
   scheduleGames(readyClient);
+  const expireChallenges = () => void expireCoinflips(readyClient).catch((error) => console.error("coinflip_expiry_failed", { error }));
+  expireChallenges();
+  setInterval(expireChallenges, 30_000).unref();
   scheduleDailyTopRoles(readyClient);
   scheduleBackups(readyClient);
   await loadApplicationEmojis(readyClient);
@@ -37,7 +41,9 @@ client.once(Events.ClientReady, async (readyClient) => {
   }
 });
 registerWelcomeEvents(client);
-client.on("interactionCreate", handleInteraction);
+client.on("interactionCreate", (interaction) => {
+  void handleInteraction(interaction).catch((error) => console.error("interaction_listener_failure", { interactionId: interaction.id, error }));
+});
 client.on("messageCreate", async (message) => {
   if (message.author.bot) await captureImportMessage(message);
   else await handleMessageXp(message);

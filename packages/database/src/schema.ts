@@ -1,11 +1,13 @@
 import { relations, sql } from "drizzle-orm";
-import { bigint, boolean, index, integer, jsonb, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { bigint, boolean, check, index, integer, jsonb, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import type { GuildSettings } from "@inochi/core";
 
 export const importStatus = pgEnum("import_status", ["collecting", "review", "completed", "cancelled", "expired"]);
 export const importSource = pgEnum("import_source", ["json", "csv", "mee6", "arcane", "probot", "lurkr", "amari", "tatsu", "carlbot"]);
 export const gameType = pgEnum("game_type", ["word", "math"]);
 export const backupTrigger = pgEnum("backup_trigger", ["manual", "pre_restore", "scheduled"]);
+export const coinflipSide = pgEnum("coinflip_side", ["heads", "tails"]);
+export const coinflipStatus = pgEnum("coinflip_status", ["pending", "completed", "declined", "expired"]);
 
 export const guilds = pgTable("guilds", {
   id: text("id").primaryKey(),
@@ -73,6 +75,33 @@ export const gameWinners = pgTable("game_winners", {
 }, (table) => [
   primaryKey({ columns: [table.roundId, table.userId] }),
   uniqueIndex("game_winners_place_idx").on(table.roundId, table.place),
+]);
+
+export const coinflipChallenges = pgTable("coinflip_challenges", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  interactionKey: text("interaction_key").notNull().unique(),
+  guildId: text("guild_id").notNull().references(() => guilds.id, { onDelete: "cascade" }),
+  channelId: text("channel_id").notNull(),
+  messageId: text("message_id"),
+  challengerId: text("challenger_id").notNull(),
+  opponentId: text("opponent_id").notNull(),
+  wager: bigint("wager", { mode: "number" }).notNull(),
+  challengerSide: coinflipSide("challenger_side").notNull(),
+  outcome: coinflipSide("outcome"),
+  winnerId: text("winner_id"),
+  status: coinflipStatus("status").default("pending").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index("coinflip_challenges_due_idx").on(table.status, table.expiresAt),
+  index("coinflip_challenges_guild_created_idx").on(table.guildId, table.createdAt),
+  index("coinflip_challenges_challenger_idx").on(table.guildId, table.challengerId, table.createdAt),
+  index("coinflip_challenges_opponent_idx").on(table.guildId, table.opponentId, table.createdAt),
+  check("coinflip_challenges_distinct_members_check", sql`${table.challengerId} <> ${table.opponentId}`),
+  check("coinflip_challenges_positive_wager_check", sql`${table.wager} > 0`),
+  check("coinflip_challenges_winner_check", sql`${table.winnerId} is null or ${table.winnerId} in (${table.challengerId}, ${table.opponentId})`),
+  check("coinflip_challenges_resolution_check", sql`(${table.status} = 'pending' and ${table.outcome} is null and ${table.winnerId} is null and ${table.resolvedAt} is null) or (${table.status} = 'completed' and ${table.outcome} is not null and ${table.winnerId} is not null and ${table.resolvedAt} is not null) or (${table.status} in ('declined', 'expired') and ${table.outcome} is null and ${table.winnerId} is null and ${table.resolvedAt} is not null)`),
 ]);
 
 export const gameSchedules = pgTable("game_schedules", {

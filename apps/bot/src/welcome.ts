@@ -1,6 +1,7 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, EmbedBuilder, Events, PermissionFlagsBits, type Client, type Guild, type TextChannel } from "discord.js";
 import { and, db, eq, getOrCreateGuild, guilds, isNull } from "@inochi/database";
 import { icon } from "./emojis";
+import { INOCHI_NAVY } from "./theme";
 
 function writable(guild: Guild, channel: TextChannel | null | undefined) {
   const permissions = channel?.permissionsFor(guild.members.me!);
@@ -15,7 +16,7 @@ async function welcome(guild: Guild) {
   const named = guild.channels.cache.filter((channel) => channel.type === ChannelType.GuildText && ["setup", "bot-commands", "bots"].includes(channel.name.toLowerCase())).first() as TextChannel | undefined;
   const destination = writable(guild, guild.systemChannel) ? guild.systemChannel : writable(guild, named) ? named : null;
   const setupUrl = `${process.env.APP_URL!.replace(/\/$/, "")}/dashboard/${guild.id}/setup`;
-  const embed = new EmbedBuilder().setColor(0x8ba8ff).setTitle(`${icon(guild.client, "levelup")} Inochi is ready`).setDescription("XP starts paused so nothing changes before you choose how progression should work. The guided setup covers channels, leveling speed, logs, backups, and a final permission check.").addFields({ name: "Start", value: "Open the setup wizard below, or run `/setup` later." }, { name: "Verify", value: "Run `/diagnose` after setup to check permissions and references." });
+  const embed = new EmbedBuilder().setColor(INOCHI_NAVY).setTitle(`${icon(guild.client, "levelup")} Inochi is ready`).setDescription("XP starts paused so nothing changes before you choose how progression should work. The guided setup covers channels, leveling speed, logs, backups, and a final permission check.").addFields({ name: "Start", value: "Open the setup wizard below, or run `/setup` later." }, { name: "Verify", value: "Run `/diagnose` after setup to check permissions and references." });
   const components = [new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(setupUrl).setLabel("Open setup wizard"))];
   let sent;
   let channelId: string | null = null;

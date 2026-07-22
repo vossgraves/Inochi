@@ -1,3 +1,4 @@
+import { MAX_COINFLIP_WAGER } from "@inochi/core";
 import { ApplicationCommandType, PermissionFlagsBits, SlashCommandBuilder } from "discord.js";
 
 const manage = PermissionFlagsBits.ManageGuild;
@@ -55,11 +56,12 @@ export const commandDefinitions = [
       .addChannelOption((option) => option.setName("channel").setDescription("Channel").setRequired(true))
       .addNumberOption((option) => option.setName("value").setDescription("0 removes; up to 100x").setMinValue(0).setMaxValue(100).setRequired(true))),
   new SlashCommandBuilder().setName("botstatus").setDescription("Show bot status"),
-  new SlashCommandBuilder().setName("guess").setDescription("Start a word guessing round now").setDefaultMemberPermissions(manage),
-  new SlashCommandBuilder().setName("game").setDescription("Manage chat game rounds").setDefaultMemberPermissions(manage)
-    .addSubcommand((command) => command.setName("start").setDescription("Start a game now")
-      .addStringOption((option) => option.setName("type").setDescription("Game type").setRequired(true).addChoices({ name: "Type the word", value: "word" }, { name: "Math race", value: "math" })))
-    .addSubcommand((command) => command.setName("status").setDescription("Show the active game in this channel")),
+  new SlashCommandBuilder().setName("word").setDescription("Start a word race now").setDefaultMemberPermissions(manage),
+  new SlashCommandBuilder().setName("maths").setDescription("Start a maths race now").setDefaultMemberPermissions(manage),
+  new SlashCommandBuilder().setName("coinflip").setDescription("Challenge another member to an XP coinflip")
+    .addUserOption((option) => option.setName("opponent").setDescription("Member to challenge").setRequired(true))
+    .addIntegerOption((option) => option.setName("wager").setDescription("XP wagered by each player").setMinValue(1).setMaxValue(MAX_COINFLIP_WAGER).setRequired(true))
+    .addStringOption((option) => option.setName("side").setDescription("Your side").setRequired(true).addChoices({ name: "Heads", value: "heads" }, { name: "Tails", value: "tails" })),
   new SlashCommandBuilder().setName("vote").setDescription("Vote for Inochi and check your XP boost"),
   new SlashCommandBuilder().setName("xpchannel").setDescription("Configure where chat XP is earned").setDefaultMemberPermissions(manage)
     .addSubcommand((command) => command.setName("mode").setDescription("Set allowlist or denylist mode")
@@ -83,15 +85,10 @@ export const commandDefinitions = [
   new SlashCommandBuilder().setName("help").setDescription("View Inochi commands"),
   new SlashCommandBuilder().setName("diagnose").setDescription("Check Inochi configuration and permissions").setDefaultMemberPermissions(manage),
   new SlashCommandBuilder().setName("import").setDescription("Import XP from another leveling bot").setDefaultMemberPermissions(manage)
-    .addSubcommand((command) => command.setName("begin").setDescription("Begin capturing a public paginated leaderboard")
-      .addStringOption((option) => option.setName("source").setDescription("Source bot").setRequired(true).addChoices(
-        { name: "ProBot", value: "probot" }, { name: "Arcane", value: "arcane" }, { name: "AmariBot", value: "amari" },
-        { name: "Lurkr", value: "lurkr" }, { name: "Carl-bot", value: "carlbot" },
-      )))
-    .addSubcommand((command) => command.setName("mee6").setDescription("Import a public MEE6 leaderboard"))
-    .addSubcommand((command) => command.setName("review").setDescription("Review the active import"))
-    .addSubcommand((command) => command.setName("apply").setDescription("Apply the reviewed import"))
-    .addSubcommand((command) => command.setName("cancel").setDescription("Cancel the active import")),
+    .addStringOption((option) => option.setName("source").setDescription("Source bot (or choose in the panel)").addChoices(
+      { name: "MEE6", value: "mee6" }, { name: "ProBot", value: "probot" }, { name: "Arcane", value: "arcane" },
+      { name: "AmariBot", value: "amari" }, { name: "Lurkr", value: "lurkr" }, { name: "Carl-bot", value: "carlbot" },
+    )),
   { name: "Check XP", type: ApplicationCommandType.User },
   { name: "View on leaderboard", type: ApplicationCommandType.User },
 ].map((command) => "toJSON" in command ? command.toJSON() : command);

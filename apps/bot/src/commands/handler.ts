@@ -6,36 +6,38 @@ import {
   ChatInputCommandInteraction,
   EmbedBuilder,
   GuildMember,
+  MessageFlags,
   PermissionFlagsBits,
   type Interaction,
+  type UserContextMenuCommandInteraction,
 } from "discord.js";
+import { randomUUID } from "node:crypto";
+import { ContainerBuilder, TextDisplayBuilder } from "@discordjs/builders";
 import { levelForXp, parseGuildSettings, progressForXp, xpForLevel } from "@inochi/core";
 import {
-  applyImport,
   auditLogs,
   db,
   getLeaderboard,
   getOrCreateGuild,
   getRank,
-  importEntries,
-  importSessions,
   members,
   guilds,
   and,
-  count,
   eq,
   sql,
   desc,
   activeVote,
-  findActiveGameRound,
   rankProfiles,
   xpPeriods,
 } from "@inochi/database";
-import { fetchMee6 } from "@inochi/importers";
 import { renderRankCard } from "@inochi/rank-card";
-import { startGame, startWordGame } from "../games";
+import { startGame } from "../games";
 import { backgroundUrl, deleteBackground, uploadBackground } from "../storage";
 import { recordAudit, sendGuildLog } from "../logging";
+import { handleImportComponent, showImportPanel } from "../imports";
+import { handleCoinflipComponent, startCoinflip } from "../coinflip";
+import { helpCopy } from "../prefix";
+import { INOCHI_NAVY, WARNING_AMBER } from "../theme";
 
 async function settingsFor(interaction: Interaction) {
   if (!interaction.guild) throw new Error("This command only works in a server");
@@ -43,22 +45,32 @@ async function settingsFor(interaction: Interaction) {
 }
 
 async function replyError(interaction: Interaction, error: unknown) {
-  const content = `**Error:** ${error instanceof Error ? error.message : "Unknown error"}`;
   if (!interaction.isRepliable()) return;
-  if (interaction.replied || interaction.deferred) await interaction.editReply({ content, embeds: [], files: [] });
-  else await interaction.reply({ content, ephemeral: true });
+  const known = error instanceof Error && error.constructor === Error && !("code" in error) && !("cause" in error);
+  const reference = randomUUID().slice(0, 8).toUpperCase();
+  const content = known ? `**Error:** ${error.message}` : `Something went wrong. Reference \`${reference}\`.`;
+  if (!known) console.error("interaction_failure", { reference, interactionId: interaction.id, type: interaction.type, guildId: interaction.guildId, userId: interaction.user.id, error });
+  try {
+    if (interaction.replied || ((interaction.isButton() || interaction.isAnySelectMenu() || interaction.isModalSubmit()) && interaction.deferred)) await interaction.followUp({ content, ephemeral: true });
+    else if (interaction.deferred) await interaction.editReply({ content, embeds: [], components: [], files: [] });
+    else await interaction.reply({ content, ephemeral: true });
+  } catch (replyFailure) {
+    console.error("interaction_error_response_failure", { reference, interactionId: interaction.id, replyFailure });
+  }
 }
 
-async function showRank(interaction: ChatInputCommandInteraction, forcedUserId?: string) {
+type RankInteraction = ChatInputCommandInteraction | UserContextMenuCommandInteraction;
+
+async function showRank(interaction: RankInteraction, forcedUserId?: string) {
   const guild = await settingsFor(interaction);
   if (!guild.settings.enabled) throw new Error("XP is disabled in this server");
   if (!guild.settings.rankCard.enabled) throw new Error("Rank cards are disabled in this server");
-  const user = forcedUserId ? await interaction.client.users.fetch(forcedUserId) : interaction.options.getUser("member") ?? interaction.user;
-  await interaction.deferReply({ ephemeral: guild.settings.rankCard.ephemeral || interaction.options.getBoolean("hidden") === true });
+  const user = forcedUserId ? await interaction.client.users.fetch(forcedUserId) : interaction.isChatInputCommand() ? interaction.options.getUser("member") ?? interaction.user : interaction.user;
+  await interaction.deferReply({ ephemeral: guild.settings.rankCard.ephemeral || (interaction.isChatInputCommand() && interaction.options.getBoolean("hidden") === true) });
   const rank = await getRank(db, interaction.guildId!, user.id);
   if (!rank || rank.xp <= 0) throw new Error(`${user.displayName} has not earned XP yet`);
   const progress = progressForXp(rank.xp, guild.settings);
-  if (interaction.options.getBoolean("text_mode") === true) {
+  if (interaction.isChatInputCommand() && interaction.options.getBoolean("text_mode") === true) {
     await interaction.editReply(`**${user.displayName}** · Rank **#${rank.rank}** · Level **${progress.level}** · **${rank.xp.toLocaleString()} XP** · ${Math.round(progress.progress * 100)}% to the next level`);
     return;
   }
@@ -79,16 +91,15 @@ async function showRank(interaction: ChatInputCommandInteraction, forcedUserId?:
     surface: guild.settings.rankCard.surface,
     progressStyle: guild.settings.rankCard.progressStyle,
   });
-  const cooldown = rank.cooldownUntil && rank.cooldownUntil > new Date() ? `<t:${Math.floor(rank.cooldownUntil.getTime() / 1000)}:R>` : "ready";
-  await interaction.editReply({ content: guild.settings.rankCard.showCooldown ? `XP cooldown: ${cooldown}` : undefined, files: [new AttachmentBuilder(image, { name: "rank.png" })] });
+  await interaction.editReply({ files: [new AttachmentBuilder(image, { name: "rank.png" })] });
 }
 
-async function showTop(interaction: ChatInputCommandInteraction, forcedUserId?: string) {
+async function showTop(interaction: RankInteraction, forcedUserId?: string) {
   const guild = await settingsFor(interaction);
   if (!guild.settings.enabled) throw new Error("XP is disabled in this server");
   if (!guild.settings.leaderboard.enabled) throw new Error("The leaderboard is disabled");
-  const page = interaction.options.getInteger("page") ?? 1;
-  const targetId = forcedUserId ?? interaction.options.getUser("member")?.id;
+  const page = interaction.isChatInputCommand() ? interaction.options.getInteger("page") ?? 1 : 1;
+  const targetId = forcedUserId ?? (interaction.isChatInputCommand() ? interaction.options.getUser("member")?.id : undefined);
   const rows = await getLeaderboard(db, interaction.guildId!, 10, (page - 1) * 10, {
     minimumXp: xpForLevel(guild.settings.leaderboard.minLevel, guild.settings),
     maximumEntries: guild.settings.leaderboard.maxEntries,
@@ -99,8 +110,8 @@ async function showTop(interaction: ChatInputCommandInteraction, forcedUserId?: 
     return `\`${String(position).padStart(2, "0")}\` <@${row.userId}> · **Lv. ${levelForXp(row.xp, guild.settings)}** · ${row.xp.toLocaleString()} XP${marker}`;
   }).join("\n") : "No ranked members on this page.";
   await interaction.reply({
-    embeds: [new EmbedBuilder().setColor(0xf4f4f4).setAuthor({ name: `${interaction.guild!.name} / leaderboard`, iconURL: interaction.guild!.iconURL() ?? undefined }).setDescription(description).setFooter({ text: `Page ${page} · ${process.env.APP_URL ?? "http://localhost:3000"}/leaderboard/${interaction.guildId}` })],
-    ephemeral: guild.settings.leaderboard.ephemeral || interaction.options.getBoolean("hidden") === true,
+    embeds: [new EmbedBuilder().setColor(INOCHI_NAVY).setAuthor({ name: `${interaction.guild!.name} / leaderboard`, iconURL: interaction.guild!.iconURL() ?? undefined }).setDescription(description).setFooter({ text: `Page ${page} · ${process.env.APP_URL ?? "http://localhost:3000"}/leaderboard/${interaction.guildId}` })],
+    ephemeral: guild.settings.leaderboard.ephemeral || (interaction.isChatInputCommand() && interaction.options.getBoolean("hidden") === true),
   });
 }
 
@@ -134,78 +145,46 @@ async function updateSettings(interaction: ChatInputCommandInteraction, updater:
   return settings;
 }
 
-async function handleImport(interaction: ChatInputCommandInteraction) {
-  const subcommand = interaction.options.getSubcommand();
-  const active = await db.query.importSessions.findFirst({
-    where: and(eq(importSessions.guildId, interaction.guildId!), eq(importSessions.createdBy, interaction.user.id), sql`${importSessions.status} in ('collecting', 'review')`),
-    orderBy: (table, { desc }) => [desc(table.createdAt)],
-  });
-  if (subcommand === "begin") {
-    if (active) throw new Error("Finish or cancel your existing import first");
-    const source = interaction.options.getString("source", true) as typeof importSessions.source.enumValues[number];
-    const [session] = await db.insert(importSessions).values({ guildId: interaction.guildId!, createdBy: interaction.user.id, source, channelId: interaction.channelId, expiresAt: new Date(Date.now() + 30 * 60_000) }).returning();
-    await interaction.reply({ content: `Import session \`${session!.id}\` is listening in this channel for public ${source} leaderboard messages for 30 minutes. Run its leaderboard command and move through every page, then use \`/import review\`. Ephemeral messages cannot be captured.`, ephemeral: true });
-    return;
-  }
-  if (subcommand === "mee6") {
-    if (active) throw new Error("Finish or cancel your existing import first");
-    await interaction.deferReply({ ephemeral: true });
-    const records = await fetchMee6(interaction.guildId!);
-    const [session] = await db.insert(importSessions).values({ guildId: interaction.guildId!, createdBy: interaction.user.id, source: "mee6", status: "review", expiresAt: new Date(Date.now() + 30 * 60_000) }).returning();
-    if (!session) throw new Error("Could not create import session");
-    for (const record of records) await db.insert(importEntries).values({ sessionId: session.id, ...record }).onConflictDoNothing();
-    await interaction.editReply(`Loaded **${records.length.toLocaleString()}** MEE6 records. Use \`/import apply\` to replace matching members' XP.`);
-    return;
-  }
-  if (!active) throw new Error("You do not have an active import");
-  if (subcommand === "cancel") {
-    await db.update(importSessions).set({ status: "cancelled", updatedAt: new Date() }).where(eq(importSessions.id, active.id));
-    await interaction.reply({ content: "Import cancelled.", ephemeral: true });
-    return;
-  }
-  const [total] = await db.select({ value: count() }).from(importEntries).where(eq(importEntries.sessionId, active.id));
-  if (subcommand === "review") {
-    await db.update(importSessions).set({ status: "review", updatedAt: new Date() }).where(eq(importSessions.id, active.id));
-    const approximate = await db.select({ value: count() }).from(importEntries).where(and(eq(importEntries.sessionId, active.id), eq(importEntries.exact, false)));
-    await interaction.reply({ content: `Captured **${total?.value ?? 0}** members from ${active.source}. **${approximate[0]?.value ?? 0}** contain only a level and will use the minimum XP for that level. Run \`/import apply\` to commit or \`/import cancel\`.`, ephemeral: true });
-    return;
-  }
-  const guild = await settingsFor(interaction);
-  const approximate = await db.select().from(importEntries).where(and(eq(importEntries.sessionId, active.id), eq(importEntries.exact, false)));
-  for (const entry of approximate) {
-    if (entry.level !== null) await db.update(importEntries).set({ xp: xpForLevel(entry.level, guild.settings) }).where(and(eq(importEntries.sessionId, active.id), eq(importEntries.userId, entry.userId)));
-  }
-  const imported = await applyImport(db, active.id);
-  await db.insert(auditLogs).values({ guildId: interaction.guildId!, actorId: interaction.user.id, action: "xp.import", metadata: { source: active.source, count: imported } });
-  await interaction.reply({ content: `Imported **${imported.toLocaleString()}** member records from ${active.source}.`, ephemeral: true });
-}
-
 export async function handleInteraction(interaction: Interaction) {
-  if (!interaction.inGuild() || (!interaction.isChatInputCommand() && !interaction.isUserContextMenuCommand())) return;
   try {
+    if (!interaction.inGuild()) {
+      if (interaction.isRepliable()) await interaction.reply({ content: "This action only works in a server.", ephemeral: true });
+      return;
+    }
+    if (interaction.isButton()) {
+      if (await handleImportComponent(interaction)) return;
+      if (await handleCoinflipComponent(interaction)) return;
+      await interaction.reply({ content: "This control is no longer available.", ephemeral: true });
+      return;
+    }
+    if (interaction.isStringSelectMenu()) {
+      if (await handleImportComponent(interaction)) return;
+      await interaction.reply({ content: "This menu is no longer available.", ephemeral: true });
+      return;
+    }
+    if (interaction.isModalSubmit() || interaction.isAnySelectMenu()) {
+      await interaction.reply({ content: "This interaction is no longer available.", ephemeral: true });
+      return;
+    }
+    if (!interaction.isChatInputCommand() && !interaction.isUserContextMenuCommand()) return;
     if (interaction.isUserContextMenuCommand()) {
       void sendGuildLog(interaction.client, interaction.guildId!, "commandUsage", "Context command used", `<@${interaction.user.id}> used \`${interaction.commandName}\` in <#${interaction.channelId}>.`).catch(console.error);
-      if (interaction.commandName === "Check XP") return showRank(interaction as unknown as ChatInputCommandInteraction, interaction.targetId);
-      if (interaction.commandName === "View on leaderboard") return showTop(interaction as unknown as ChatInputCommandInteraction, interaction.targetId);
+      if (interaction.commandName === "Check XP") return showRank(interaction, interaction.targetId);
+      if (interaction.commandName === "View on leaderboard") return showTop(interaction, interaction.targetId);
       return;
     }
     const command = interaction.commandName;
-    const managerCommands = new Set(["winner", "joinrole", "blacklist", "reset", "refresh", "addxp", "clear", "config", "rewardrole", "multiplier", "guess", "game", "xpchannel", "diagnose", "import", "setup"]);
+    const managerCommands = new Set(["winner", "joinrole", "blacklist", "reset", "refresh", "addxp", "clear", "config", "rewardrole", "multiplier", "word", "maths", "xpchannel", "diagnose", "import", "setup"]);
     if (managerCommands.has(command) && !interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) throw new Error("Manage Server permission is required");
     void sendGuildLog(interaction.client, interaction.guildId!, "commandUsage", "Command used", `<@${interaction.user.id}> used \`/${command}\` in <#${interaction.channelId}>.`).catch(console.error);
     if (managerCommands.has(command)) void recordAudit(interaction.guildId!, interaction.user.id, "command.admin", { command, channelId: interaction.channelId }).catch(console.error);
     if (command === "rank") return showRank(interaction);
     if (command === "top") return showTop(interaction);
-    if (command === "help") return interaction.reply({
-      embeds: [new EmbedBuilder().setColor(0xf4f4f4).setTitle("Inochi commands").setDescription([
-        "**Progress** · `/rank` `/top` `/weekly` `/calculate` `/sync` `/wrapped`",
-        "**Games** · `/game start` `/game status` `/guess`",
-        "**Personal** · `/vote` `/privacy` `/colour` `/background`",
-        "**Configuration** · `/setup` `/config` `/xpchannel` `/rewardrole` `/multiplier` `/joinrole` `/blacklist`",
-        "**Moderation** · `/addxp` `/clear` `/reset` `/refresh` `/winner`",
-        "**Migration** · `/import begin` `/import mee6` `/import review` `/import apply` `/import cancel`",
-      ].join("\n"))], ephemeral: true,
-    });
+    if (command === "help") {
+      const guild = await settingsFor(interaction);
+      const manager = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild) ?? false;
+      return interaction.reply({ components: [new ContainerBuilder().setAccentColor(INOCHI_NAVY).addTextDisplayComponents(new TextDisplayBuilder().setContent(`## Inochi commands\n${helpCopy(guild.settings.commands.prefix, manager)}`))], flags: MessageFlags.IsComponentsV2 });
+    }
     if (command === "diagnose") {
       const guild = await settingsFor(interaction);
       const me = interaction.guild!.members.me;
@@ -220,7 +199,7 @@ export async function handleInteraction(interaction: Interaction) {
         ["Reward references", missingRewards === 0], ["Reward hierarchy", unmanageableRewards === 0], ["Channel references", missingChannels === 0],
         ["Audit channel", !guild.settings.logging.channelId || Boolean(logPermissions?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks]))],
       ] as const;
-      return interaction.reply({ embeds: [new EmbedBuilder().setColor(checks.every(([, ok]) => ok) ? 0xf4f4f4 : 0x888888).setTitle("Inochi diagnostics").setDescription(checks.map(([name, ok]) => `${ok ? "✓" : "✕"} ${name}`).join("\n")).setFooter({ text: `${missingRewards} missing roles · ${unmanageableRewards} unmanageable roles · ${missingChannels} missing channels` })], ephemeral: true });
+      return interaction.reply({ embeds: [new EmbedBuilder().setColor(checks.every(([, ok]) => ok) ? INOCHI_NAVY : WARNING_AMBER).setTitle("Inochi diagnostics").setDescription(checks.map(([name, ok]) => `${ok ? "✓" : "✕"} ${name}`).join("\n")).setFooter({ text: `${missingRewards} missing roles · ${unmanageableRewards} unmanageable roles · ${missingChannels} missing channels` })], ephemeral: true });
     }
     if (command === "privacy") {
       const value = interaction.options.getBoolean("leaderboard");
@@ -261,7 +240,7 @@ export async function handleInteraction(interaction: Interaction) {
       const totalXp = rows.reduce((sum, row) => sum + row.xp, 0);
       const totalMessages = rows.reduce((sum, row) => sum + row.messages, 0);
       const best = rows[0];
-      return interaction.reply({ embeds: [new EmbedBuilder().setColor(0xf4f4f4).setTitle(`${year} Inochi Wrapped`).setDescription(`**${totalXp.toLocaleString()} XP** from **${totalMessages.toLocaleString()} messages** in this server.\nMost active month: **${best?.period ?? "No activity yet"}**.`)], ephemeral: true });
+      return interaction.reply({ embeds: [new EmbedBuilder().setColor(INOCHI_NAVY).setTitle(`${year} Inochi Wrapped`).setDescription(`**${totalXp.toLocaleString()} XP** from **${totalMessages.toLocaleString()} messages** in this server.\nMost active month: **${best?.period ?? "No activity yet"}**.`)], ephemeral: true });
     }
     if (command === "vote") {
       const guild = await settingsFor(interaction);
@@ -293,17 +272,12 @@ export async function handleInteraction(interaction: Interaction) {
       }, "settings.channel-policy");
       return interaction.reply({ content: `${channel} ${subcommand === "add" ? "added to" : "removed from"} the ${guild.settings.channelPolicy.mode}.`, ephemeral: true });
     }
-    if (command === "game") {
-      const subcommand = interaction.options.getSubcommand();
+    if (command === "word" || command === "maths") {
       if (!interaction.channel?.isTextBased() || interaction.channel.isDMBased()) throw new Error("Choose a server text channel");
-      if (subcommand === "status") {
-        const active = await findActiveGameRound(db, interaction.guildId!, interaction.channelId);
-        return interaction.reply({ content: active ? `A **${active.type}** round is active until <t:${Math.floor(active.expiresAt.getTime() / 1000)}:R>.` : "No game is active here.", ephemeral: true });
-      }
-      const type = interaction.options.getString("type", true) as "word" | "math";
-      await interaction.reply({ content: `Starting a ${type} race.`, ephemeral: true });
+      const type = command === "word" ? "word" : "math";
+      await interaction.deferReply({ ephemeral: true });
       await startGame(interaction.channel, type);
-      return;
+      return interaction.editReply(`${type === "word" ? "Word" : "Math"} race started in <#${interaction.channelId}>.`);
     }
     if (command === "weekly" || command === "winner") {
       const guild = await settingsFor(interaction);
@@ -322,7 +296,7 @@ export async function handleInteraction(interaction: Interaction) {
         return interaction.reply({ content: "Weekly XP reset.", ephemeral: true });
       }
       const body = winners.map((member, index) => `\`${index + 1}\` <@${member.userId}> · **${member.weeklyXp.toLocaleString()} XP**`).join("\n") || "No weekly XP has been earned.";
-      return interaction.reply({ embeds: [new EmbedBuilder().setColor(0xf4f4f4).setTitle(command === "winner" ? "Weekly winners" : "Weekly leaderboard").setDescription(body)] });
+      return interaction.reply({ embeds: [new EmbedBuilder().setColor(INOCHI_NAVY).setTitle(command === "winner" ? "Weekly winners" : "Weekly leaderboard").setDescription(body)] });
     }
     if (command === "joinrole") {
       const role = interaction.options.getRole("role");
@@ -370,17 +344,16 @@ export async function handleInteraction(interaction: Interaction) {
       const url = `${(process.env.APP_URL ?? "http://localhost:3000").replace(/\/$/, "")}/dashboard/${interaction.guildId}/setup`;
       return interaction.reply({ content: "Use the guided setup to configure progression safely before enabling XP.", components: [new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(url).setLabel("Open setup wizard"))], ephemeral: true });
     }
-    if (command === "botstatus") return interaction.reply({ embeds: [new EmbedBuilder().setColor(0xf4f4f4).setTitle("Inochi status").addFields(
+    if (command === "botstatus") return interaction.reply({ embeds: [new EmbedBuilder().setColor(INOCHI_NAVY).setTitle("Inochi status").addFields(
       { name: "Servers", value: interaction.client.guilds.cache.size.toLocaleString(), inline: true },
       { name: "Ping", value: `${interaction.client.ws.ping} ms`, inline: true },
       { name: "Uptime", value: `${Math.floor(interaction.client.uptime / 60_000)} min`, inline: true },
     )] });
-    if (command === "import") return handleImport(interaction);
-    if (command === "guess") {
-      if (!interaction.channel?.isTextBased() || interaction.channel.isDMBased()) throw new Error("Choose a server text channel");
-      await interaction.reply({ content: "Starting a word round.", ephemeral: true });
-      await startWordGame(interaction.channel);
-      return;
+    if (command === "import") return showImportPanel(interaction);
+    if (command === "coinflip") {
+      const user = interaction.options.getUser("opponent", true);
+      const opponent = await interaction.guild!.members.fetch(user.id);
+      return startCoinflip(interaction, opponent, interaction.options.getInteger("wager", true), interaction.options.getString("side", true) as "heads" | "tails");
     }
     if (command === "calculate") {
       const guild = await settingsFor(interaction);
@@ -389,7 +362,7 @@ export async function handleInteraction(interaction: Interaction) {
       const target = Math.min(interaction.options.getInteger("level", true), guild.settings.curve.maxLevel);
       const required = xpForLevel(target, guild.settings);
       const remaining = Math.max(0, required - (rank?.xp ?? 0));
-      return interaction.reply({ embeds: [new EmbedBuilder().setColor(0xf4f4f4).setTitle(`Level ${target} calculation`).setDescription(`<@${user.id}> needs **${remaining.toLocaleString()} XP** (${required.toLocaleString()} total).`)] });
+      return interaction.reply({ embeds: [new EmbedBuilder().setColor(INOCHI_NAVY).setTitle(`Level ${target} calculation`).setDescription(`<@${user.id}> needs **${remaining.toLocaleString()} XP** (${required.toLocaleString()} total).`)] });
     }
     if (command === "sync") {
       const user = interaction.options.getUser("member") ?? interaction.user;
@@ -444,7 +417,8 @@ export async function handleInteraction(interaction: Interaction) {
       return interaction.reply({ content: value > 0 ? `<${type === "role" ? "@&" : "#"}${entity.id}> now earns **${value}x XP**.` : "Multiplier removed.", ephemeral: true });
     }
   } catch (error) {
-    if (interaction.guildId) void sendGuildLog(interaction.client, interaction.guildId, "errors", "Command error", `\`${interaction.commandName}\` failed for <@${interaction.user.id}>.`).catch(console.error);
+    const action = interaction.isCommand() ? interaction.commandName : interaction.isMessageComponent() || interaction.isModalSubmit() ? interaction.customId : `type:${interaction.type}`;
+    if (interaction.guildId) void sendGuildLog(interaction.client, interaction.guildId, "errors", "Interaction error", `\`${action}\` failed for <@${interaction.user.id}>.`).catch(console.error);
     await replyError(interaction, error);
   }
 }

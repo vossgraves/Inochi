@@ -4,7 +4,7 @@ import { Children, cloneElement, isValidElement, useId, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
 import { analyzeCurve, applyLevelingPreset, detectLevelingPreset, levelingPresets } from "@inochi/core";
 import type { LevelingPresetName } from "@inochi/core";
-import type { GuildSettings } from "@inochi/core";
+import { MAX_COINFLIP_WAGER, type GuildSettings } from "@inochi/core";
 import { RotateCcw, Save } from "lucide-react";
 import { DataTools } from "./data-tools";
 import { CurvePreview } from "./curve-preview";
@@ -60,6 +60,7 @@ export function SettingsForm({ guildId, initial, initialRevision }: Props) {
   const rotation = settings.games.rotation;
   const word = settings.games.wordRace;
   const math = settings.games.mathRace;
+  const coinflip = settings.games.coinflip;
   const curveDiagnostics = analyzeCurve(settings);
   const activePreset = detectLevelingPreset(settings);
   const averageGain = Math.round((settings.gain.min + settings.gain.max) / 2 * settings.multipliers.global);
@@ -86,12 +87,14 @@ export function SettingsForm({ guildId, initial, initialRevision }: Props) {
     <Section label="curve" title="Level curve" description="Shape every threshold with a live preview driven by the exact same math as the bot.">
       <CurvePreview settings={settings} />
       <div className="metric-strip"><div><span>Average award</span><strong>{averageGain.toLocaleString()} XP</strong></div><div><span>Level cap</span><strong>{settings.curve.maxLevel}</strong></div><div><span>Curve state</span><strong>{curveDiagnostics.strictlyIncreasing ? "Healthy" : "Needs review"}</strong></div></div>
-      <Row title="Constant coefficient" description="The fixed c₀ term used by imported bot formulas."><NumberField value={settings.curve.constant} min={-1000000} max={1000000} step={.01} onChange={(value) => set((draft) => { draft.curve.constant = value; })} /></Row>
-      <Row title="Cubic coefficient" description="The L³ term in the XP curve."><NumberField value={settings.curve.cubic} min={-100} max={100} step={.01} onChange={(value) => set((draft) => { draft.curve.cubic = value; })} /></Row>
-      <Row title="Quadratic coefficient" description="The L² term in the XP curve."><NumberField value={settings.curve.quadratic} min={-10000} max={10000} step={.01} onChange={(value) => set((draft) => { draft.curve.quadratic = value; })} /></Row>
-      <Row title="Linear coefficient" description="The L term in the XP curve."><NumberField value={settings.curve.linear} min={-100000} max={100000} step={.01} onChange={(value) => set((draft) => { draft.curve.linear = value; })} /></Row>
-      <Row title="Round requirements" description="Round level thresholds to this interval."><NumberField value={settings.curve.rounding} min={1} max={1000} onChange={(value) => set((draft) => { draft.curve.rounding = value; })} /></Row>
       <Row title="Maximum level" description="Hard level cap for this server."><NumberField value={settings.curve.maxLevel} min={1} max={1000} onChange={(value) => set((draft) => { draft.curve.maxLevel = value; })} /></Row>
+      <details className="advanced-settings"><summary>Advanced formula</summary><p>Edit raw polynomial terms only when matching an imported or custom leveling curve.</p>
+        <Row title="Constant coefficient" description="The fixed c₀ term used by imported bot formulas."><NumberField value={settings.curve.constant} min={-1000000} max={1000000} step={.01} onChange={(value) => set((draft) => { draft.curve.constant = value; })} /></Row>
+        <Row title="Cubic coefficient" description="The L³ term in the XP curve."><NumberField value={settings.curve.cubic} min={-100} max={100} step={.01} onChange={(value) => set((draft) => { draft.curve.cubic = value; })} /></Row>
+        <Row title="Quadratic coefficient" description="The L² term in the XP curve."><NumberField value={settings.curve.quadratic} min={-10000} max={10000} step={.01} onChange={(value) => set((draft) => { draft.curve.quadratic = value; })} /></Row>
+        <Row title="Linear coefficient" description="The L term in the XP curve."><NumberField value={settings.curve.linear} min={-100000} max={100000} step={.01} onChange={(value) => set((draft) => { draft.curve.linear = value; })} /></Row>
+        <Row title="Round requirements" description="Round level thresholds to this interval."><NumberField value={settings.curve.rounding} min={1} max={1000} onChange={(value) => set((draft) => { draft.curve.rounding = value; })} /></Row>
+      </details>
     </Section>
     <Section label="level-up" title="Announcements" description="Celebrate milestones without turning every channel into a notification stream.">
       <Row title="Announcements" description="Send a message when members level up."><Toggle checked={settings.levelUp.enabled} onChange={(value) => set((draft) => { draft.levelUp.enabled = value; })} /></Row>
@@ -107,7 +110,6 @@ export function SettingsForm({ guildId, initial, initialRevision }: Props) {
       <RankCardEditor guildId={guildId} value={settings.rankCard} onChange={(value) => set((draft) => { draft.rankCard = value; })} />
       <Row title="Image rank card" description="Return the monochrome image from /rank."><Toggle checked={settings.rankCard.enabled} onChange={(value) => set((draft) => { draft.rankCard.enabled = value; })} /></Row>
       <Row title="Private by default" description="Make rank responses ephemeral."><Toggle checked={settings.rankCard.ephemeral} onChange={(value) => set((draft) => { draft.rankCard.ephemeral = value; })} /></Row>
-      <Row title="Show cooldown" description="Expose remaining earning cooldown."><Toggle checked={settings.rankCard.showCooldown} onChange={(value) => set((draft) => { draft.rankCard.showCooldown = value; })} /></Row>
       <Row title="Relative XP" description="Show progress within the current level."><Toggle checked={settings.rankCard.relativeXp} onChange={(value) => set((draft) => { draft.rankCard.relativeXp = value; })} /></Row>
     </Section>
     <Section label="leaderboard" title="Leaderboard" description="Set command privacy, web visibility, and the population included in rankings.">
@@ -117,21 +119,31 @@ export function SettingsForm({ guildId, initial, initialRevision }: Props) {
       <Row title="Minimum level" description="Hide entries below this level."><NumberField value={settings.leaderboard.minLevel} min={0} max={1000} onChange={(value) => set((draft) => { draft.leaderboard.minLevel = value; })} /></Row>
       <Row title="Maximum entries" description="Zero keeps the full leaderboard."><NumberField value={settings.leaderboard.maxEntries} min={0} max={1000000} onChange={(value) => set((draft) => { draft.leaderboard.maxEntries = value; })} /></Row>
     </Section>
-    <Section label="games" title="Chat games" description="Schedule persistent word and math races with independent winner rewards.">
+    <Section label="commands" title="Commands" description="Configure message commands independently from messages ignored for XP.">
+      <Row title="Prefix commands" description="Allow members to use message commands as an alternative to slash commands."><Toggle checked={settings.commands.prefixEnabled} onChange={(value) => set((draft) => { draft.commands.prefixEnabled = value; })} /></Row>
+      <Row title="Command prefix" description="The server prefix for message commands, such as i!rank."><input value={settings.commands.prefix} placeholder="i!" maxLength={6} disabled={!settings.commands.prefixEnabled} onChange={(event) => set((draft) => { draft.commands.prefix = event.target.value; })} /></Row>
+      <Row title="Command messages earn XP" description="Count otherwise eligible command messages toward normal message XP."><Toggle checked={settings.community.countCommands} onChange={(value) => set((draft) => { draft.community.countCommands = value; })} /></Row>
+    </Section>
+    <Section label="games" title="Chat games" description="Managers start word and math races; members answer them with normal chat messages.">
+      <div className="section-note">Word and math starts are manager-only. Answers are ordinary messages, not commands.</div>
       <Row title="Automatic rotation" description="Persistently schedule word and math races."><Toggle checked={rotation.enabled} onChange={(value) => set((draft) => { draft.games.rotation.enabled = value; })} /></Row>
       <Row title="Game channels" description="Comma-separated text channel IDs."><input value={rotation.channelIds.join(", ")} onChange={(event) => set((draft) => { draft.games.rotation.channelIds = event.target.value.split(",").map((value) => value.trim()).filter(Boolean); })} /></Row>
       <Row title="Rotation interval" description="Minutes between rounds in each channel."><NumberField value={rotation.intervalMinutes} min={1} max={10080} onChange={(value) => set((draft) => { draft.games.rotation.intervalMinutes = value; })} /></Row>
       <Row title="Rotation mode" description="Choose games randomly or alternate in order."><select value={rotation.mode} onChange={(event) => set((draft) => { draft.games.rotation.mode = event.target.value as "random" | "round-robin"; })}><option value="random">Random</option><option value="round-robin">Round robin</option></select></Row>
       <Row title="Enabled game types" description="Comma-separated: word, math."><input value={rotation.types.join(", ")} onChange={(event) => set((draft) => { draft.games.rotation.types = event.target.value.split(",").map((value) => value.trim()).filter((value): value is "word" | "math" => value === "word" || value === "math"); })} /></Row>
-      <Row title="Word race" description="Enable styled type-the-word images."><Toggle checked={word.enabled} onChange={(value) => set((draft) => { draft.games.wordRace.enabled = value; })} /></Row>
-      <Row title="Word answer window" description="Seconds available to claim a place."><NumberField value={word.answerSeconds} min={10} max={3600} onChange={(value) => set((draft) => { draft.games.wordRace.answerSeconds = value; })} /></Row>
+      <Row title="Word race" description="Enable manager-started type-the-word images answered with normal messages."><Toggle checked={word.enabled} onChange={(value) => set((draft) => { draft.games.wordRace.enabled = value; })} /></Row>
+      <Row title="Word answer window" description="Seconds available to answer in chat; the default is 120."><NumberField value={word.answerSeconds} min={10} max={3600} onChange={(value) => set((draft) => { draft.games.wordRace.answerSeconds = value; })} /></Row>
       <Row title="Word place XP" description="One to three comma-separated rewards: first, second, third."><input value={word.placeXp.join(", ")} onChange={(event) => set((draft) => { draft.games.wordRace.placeXp = event.target.value.split(",").map(Number).filter((value) => Number.isInteger(value) && value >= 0).slice(0, 3); })} /></Row>
       <Row title="Word hints" description="Progressive hints before expiration."><NumberField value={word.hints} min={0} max={5} onChange={(value) => set((draft) => { draft.games.wordRace.hints = value; })} /></Row>
       <Row title="Custom words" description="One word per line; empty uses built-in words."><textarea rows={6} value={word.customWords.join("\n")} onChange={(event) => set((draft) => { draft.games.wordRace.customWords = event.target.value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean); })} /></Row>
-      <Row title="Math race" description="Enable generated equation images."><Toggle checked={math.enabled} onChange={(value) => set((draft) => { draft.games.mathRace.enabled = value; })} /></Row>
+      <Row title="Math race" description="Enable manager-started equations answered with normal messages."><Toggle checked={math.enabled} onChange={(value) => set((draft) => { draft.games.mathRace.enabled = value; })} /></Row>
       <Row title="Math difficulty" description="Control expression complexity."><select value={math.difficulty} onChange={(event) => set((draft) => { draft.games.mathRace.difficulty = event.target.value as GuildSettings["games"]["mathRace"]["difficulty"]; })}><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option><option value="mixed">Mixed</option></select></Row>
-      <Row title="Math answer window" description="Seconds available to claim a place."><NumberField value={math.answerSeconds} min={10} max={3600} onChange={(value) => set((draft) => { draft.games.mathRace.answerSeconds = value; })} /></Row>
+      <Row title="Math answer window" description="Seconds available to answer in chat; the default is 120."><NumberField value={math.answerSeconds} min={10} max={3600} onChange={(value) => set((draft) => { draft.games.mathRace.answerSeconds = value; })} /></Row>
       <Row title="Math place XP" description="One to three comma-separated rewards."><input value={math.placeXp.join(", ")} onChange={(event) => set((draft) => { draft.games.mathRace.placeXp = event.target.value.split(",").map(Number).filter((value) => Number.isInteger(value) && value >= 0).slice(0, 3); })} /></Row>
+      <Row title="Coinflip challenges" description="Let members wager XP against another member through a timed challenge."><Toggle checked={coinflip.enabled} onChange={(value) => set((draft) => { draft.games.coinflip.enabled = value; })} /></Row>
+      <Row title="Minimum wager" description="Lowest XP wager accepted for a coinflip."><NumberField value={coinflip.minWager} min={1} max={MAX_COINFLIP_WAGER} onChange={(value) => set((draft) => { draft.games.coinflip.minWager = value; })} /></Row>
+      <Row title="Maximum wager" description="Highest XP wager accepted; it must be at least the minimum."><NumberField value={coinflip.maxWager} min={coinflip.minWager} max={MAX_COINFLIP_WAGER} onChange={(value) => set((draft) => { draft.games.coinflip.maxWager = value; })} /></Row>
+      <Row title="Challenge timeout" description="Seconds the challenged member has to accept or decline."><NumberField value={coinflip.challengeSeconds} min={30} max={600} onChange={(value) => set((draft) => { draft.games.coinflip.challengeSeconds = value; })} /></Row>
     </Section>
     <Section label="roles" title="Roles, multipliers, and community" description="Connect progression to Discord roles and tune exceptions for your community.">
       <Row title="Configured rewards" description="Use /rewardrole for Discord's validated role picker. Remove entries here by role ID."><textarea rows={5} value={settings.rewards.map((reward) => `${reward.roleId}:${reward.level}:${reward.keep}:${reward.noSync}`).join("\n")} onChange={(event) => set((draft) => { draft.rewards = event.target.value.split(/\r?\n/).filter(Boolean).flatMap((line) => { const [roleId, level, keep, noSync] = line.split(":"); return roleId && level ? [{ roleId, level: Number(level), keep: keep === "true", noSync: noSync === "true" }] : []; }); })} /></Row>
@@ -140,7 +152,7 @@ export function SettingsForm({ guildId, initial, initialRevision }: Props) {
       <Row title="Join role ID" description="Role granted to new members; leave blank to disable."><input value={settings.community.joinRoleId ?? ""} onChange={(event) => set((draft) => { draft.community.joinRoleId = event.target.value || null; })} /></Row>
       <Row title="XP blacklist roles" description="Comma-separated role IDs that cannot earn message XP."><input value={settings.community.blacklistRoleIds.join(", ")} onChange={(event) => set((draft) => { draft.community.blacklistRoleIds = event.target.value.split(",").map((id) => id.trim()).filter(Boolean); })} /></Row>
       <Row title="No reward roles" description="Members with these roles do not receive level reward roles."><input value={settings.community.noRewardRoleIds.join(", ")} onChange={(event) => set((draft) => { draft.community.noRewardRoleIds = event.target.value.split(",").map((id) => id.trim()).filter(Boolean); })} /></Row>
-      <Row title="Ignored command prefixes" description="Messages beginning with these prefixes do not earn XP."><input value={settings.community.ignoredPrefixes.join(", ")} onChange={(event) => set((draft) => { draft.community.ignoredPrefixes = event.target.value.split(",").map((value) => value.trim()).filter(Boolean); })} /></Row>
+      <Row title="Other ignored prefixes" description="Separately from the configured command prefix, messages beginning with these values do not earn XP."><input value={settings.community.ignoredPrefixes.join(", ")} onChange={(event) => set((draft) => { draft.community.ignoredPrefixes = event.target.value.split(",").map((value) => value.trim()).filter(Boolean); })} /></Row>
       <Row title="Reset automation" description="Delete leveling data on leave/kick, ban, both, or never."><select value={settings.community.resetOn} onChange={(event) => set((draft) => { draft.community.resetOn = event.target.value as GuildSettings["community"]["resetOn"]; })}><option value="never">Never</option><option value="leave">Leave or kick</option><option value="ban">Ban</option><option value="both">Both</option></select></Row>
       <Row title="Daily top role ID" description="At UTC day rollover, assign this role to the highest eligible member."><input value={settings.community.dailyTopRoleId ?? ""} onChange={(event) => set((draft) => { draft.community.dailyTopRoleId = event.target.value || null; })} /></Row>
       <Row title="Role multipliers" description="One role ID and multiplier per line, formatted roleId:value."><textarea rows={4} value={settings.multipliers.roles.map((item) => `${item.roleId}:${item.multiplier}`).join("\n")} onChange={(event) => set((draft) => { draft.multipliers.roles = event.target.value.split(/\r?\n/).filter(Boolean).flatMap((line) => { const [roleId, multiplier] = line.split(":"); return roleId && multiplier ? [{ roleId, multiplier: Number(multiplier) }] : []; }); })} /></Row>
@@ -162,7 +174,7 @@ export function SettingsForm({ guildId, initial, initialRevision }: Props) {
       <Row title="Retention" description="Days to retain scheduled snapshots in PostgreSQL."><NumberField value={settings.backups.retentionDays} min={1} max={90} onChange={(value) => set((draft) => { draft.backups.retentionDays = value; })} /></Row>
     </Section>
     <Section label="imports" title="Data, imports, and backups" description="Move existing progression in, take complete snapshots, and create scoped API access.">
-      <div className="field-label">Use <code>/import mee6</code> for a public MEE6 leaderboard. For ProBot, Arcane, AmariBot, Lurkr, or Carl-bot, run <code>/import begin</code> in a private admin channel, invoke the source bot&apos;s public leaderboard, advance every page, then run <code>/import review</code> and <code>/import apply</code>.</div>
+      <div className="field-label">Run <code>/import</code>, choose the source in the private control panel, and select <strong>Start</strong>. For message-based sources, invoke the source bot&apos;s public leaderboard in that channel and advance every page before selecting <strong>Review</strong> and <strong>Apply</strong>.</div>
       <div className="status">Official JSON/CSV exports remain preferred. Ephemeral source messages cannot be captured.</div>
       <DataTools guildId={guildId} />
     </Section>

@@ -9,7 +9,7 @@ const applicationId = process.env.DISCORD_CLIENT_ID;
 if (!token || !applicationId) throw new Error("DISCORD_TOKEN and DISCORD_CLIENT_ID are required");
 const rest = new REST({ version: "10" }).setToken(token);
 const current = await rest.get(Routes.applicationEmojis(applicationId)) as { items: { id: string; name: string }[] };
-const marks: Record<keyof typeof emojiFallbacks, string> = { success: "OK", warning: "!", error: "X", info: "i", settings: "CFG", xp: "XP", levelup: "UP", rank: "#", leaderboard: "TOP", games: "GO", security: "SAFE", backup: "BAK" };
+const marks: Record<keyof typeof emojiFallbacks, string> = { success: "OK", warning: "!", error: "X", info: "i", settings: "CFG", xp: "XP", levelup: "UP", rank: "#", leaderboard: "TOP", games: "GO", security: "SAFE", backup: "BAK", coinflip: "CF" };
 
 for (const name of Object.keys(emojiFallbacks) as (keyof typeof emojiFallbacks)[]) {
   const mark = marks[name];

@@ -2,7 +2,7 @@ import type { Client } from "discord.js";
 
 export const emojiFallbacks = {
   success: "✓", warning: "!", error: "✕", info: "i", settings: "⚙", xp: "+XP",
-  levelup: "↑", rank: "#", leaderboard: "≡", games: ">", security: "◆", backup: "↻",
+  levelup: "↑", rank: "#", leaderboard: "≡", games: ">", security: "◆", backup: "↻", coinflip: "🪙",
 } as const;
 
 export type InochiEmoji = keyof typeof emojiFallbacks;

@@ -5,6 +5,7 @@ import { handleGuess } from "./games";
 import { syncMember } from "./commands/handler";
 import { channelAllowsXp, channelHierarchy } from "./channel-policy";
 import { sendGuildLog } from "./logging";
+import { handlePrefixCommand } from "./prefix";
 
 function randomInt(min: number, max: number) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -15,10 +16,12 @@ export async function handleMessageXp(message: Message) {
   if (await handleGuess(message)) return;
   const guild = await getOrCreateGuild(db, message.guild.id, message.guild.name);
   const settings = guild.settings;
+  const prefixCommand = await handlePrefixCommand(message as Message<true>, guild);
+  if (prefixCommand && !settings.community.countCommands) return;
   if (!settings.enabled) return;
   if (settings.community.blacklistRoleIds.some((roleId) => message.member!.roles.cache.has(roleId))) return;
   if (!channelAllowsXp(message, settings)) return;
-  if (settings.community.ignoredPrefixes.some((prefix) => message.content.startsWith(prefix))) return;
+  if (!prefixCommand && settings.community.ignoredPrefixes.some((prefix) => message.content.startsWith(prefix))) return;
   const vote = settings.multipliers.vote.enabled ? await activeVote(db, message.author.id) : null;
   const voteActive = vote && Date.now() - vote.votedAt.getTime() < settings.multipliers.vote.durationHours * 3_600_000;
   const multiplier = calculateMultiplier(settings, {

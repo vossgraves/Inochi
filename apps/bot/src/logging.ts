@@ -1,5 +1,6 @@
 import { EmbedBuilder, type Client } from "discord.js";
 import { and, auditLogs, db, eq, getGuild, isNull, lt } from "@inochi/database";
+import { INOCHI_NAVY } from "./theme";
 
 export type LogCategory = "commandUsage" | "levelUps" | "adminActions" | "errors" | "backups";
 
@@ -13,7 +14,7 @@ export async function sendGuildLog(client: Client, guildId: string, category: Lo
   const guild = client.guilds.cache.get(guildId);
   const channel = guild?.channels.cache.get(row.settings.logging.channelId);
   if (!channel?.isTextBased() || channel.isDMBased() || !channel.isSendable()) return false;
-  await channel.send({ embeds: [new EmbedBuilder().setColor(0x8ba8ff).setTitle(title).setDescription(description).setTimestamp()], allowedMentions: { parse: [] } });
+  await channel.send({ embeds: [new EmbedBuilder().setColor(INOCHI_NAVY).setTitle(title).setDescription(description).setTimestamp()], allowedMentions: { parse: [] } });
   return true;
 }
 

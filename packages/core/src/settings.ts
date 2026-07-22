@@ -1,11 +1,11 @@
 import { z } from "zod";
 
 const snowflake = z.string().regex(/^\d{16,20}$/);
+export const MAX_COINFLIP_WAGER = 1_000_000_000;
 
 export const rankCardSettingsSchema = z.object({
   enabled: z.boolean().default(true),
   ephemeral: z.boolean().default(false),
-  showCooldown: z.boolean().default(true),
   relativeXp: z.boolean().default(true),
   accentColor: z.string().regex(/^#[0-9a-f]{6}$/i).default("#8ba8ff"),
   backgroundKey: z.string().min(1).max(500).nullable().default(null),
@@ -17,17 +17,21 @@ export const rankCardSettingsSchema = z.object({
 
 export const guildSettingsSchema = z.object({
   enabled: z.boolean().default(false),
+  commands: z.object({
+    prefixEnabled: z.boolean().default(true),
+    prefix: z.string().min(1).max(6).regex(/^\S+$/, "Prefix cannot contain whitespace").default("i!"),
+  }).default({}),
   gain: z.object({
-    min: z.number().int().min(0).max(5_000).default(50),
-    max: z.number().int().min(0).max(5_000).default(100),
+    min: z.number().int().min(0).max(5_000).default(15),
+    max: z.number().int().min(0).max(5_000).default(40),
     cooldownSeconds: z.number().min(0).max(31_536_000).default(60),
   }).default({}),
   curve: z.object({
-    constant: z.number().min(-1_000_000).max(1_000_000).default(0),
-    cubic: z.number().min(-100).max(100).default(1),
+    constant: z.number().min(-1_000_000).max(1_000_000).default(150),
+    cubic: z.number().min(-100).max(100).default(0),
     quadratic: z.number().min(-10_000).max(10_000).default(50),
-    linear: z.number().min(-100_000).max(100_000).default(100),
-    rounding: z.number().int().min(1).max(1_000).default(100),
+    linear: z.number().min(-100_000).max(100_000).default(-100),
+    rounding: z.number().int().min(1).max(1_000).default(1),
     maxLevel: z.number().int().min(1).max(1_000).default(1_000),
   }).default({}),
   levelUp: z.object({
@@ -93,16 +97,26 @@ export const guildSettingsSchema = z.object({
     }).default({}),
     wordRace: z.object({
       enabled: z.boolean().default(true),
-      answerSeconds: z.number().int().min(10).max(3_600).default(60),
+      answerSeconds: z.number().int().min(10).max(3_600).default(120),
       placeXp: z.array(z.number().int().min(0).max(100_000)).min(1).max(3).default([250, 150, 75]),
       hints: z.number().int().min(0).max(5).default(1),
       customWords: z.array(z.string().trim().min(2).max(40)).max(1_000).default([]),
     }).default({}),
     mathRace: z.object({
       enabled: z.boolean().default(true),
-      answerSeconds: z.number().int().min(10).max(3_600).default(60),
+      answerSeconds: z.number().int().min(10).max(3_600).default(120),
       placeXp: z.array(z.number().int().min(0).max(100_000)).min(1).max(3).default([300, 175, 100]),
       difficulty: z.enum(["easy", "medium", "hard", "mixed"]).default("medium"),
+    }).default({}),
+    coinflip: z.object({
+      enabled: z.boolean().default(true),
+      minWager: z.number().int().min(1).max(MAX_COINFLIP_WAGER).default(10),
+      maxWager: z.number().int().min(1).max(MAX_COINFLIP_WAGER).default(1_000),
+      challengeSeconds: z.number().int().min(30).max(600).default(120),
+    }).superRefine((value, context) => {
+      if (value.maxWager < value.minWager) {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: ["maxWager"], message: "Maximum wager must be at least the minimum wager" });
+      }
     }).default({}),
   }).default({}),
   community: z.object({
