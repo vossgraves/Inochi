@@ -1,11 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { Children, cloneElement, isValidElement, useId, useState } from "react";
+import type { ReactElement, ReactNode } from "react";
+import { analyzeCurve } from "@inochi/core";
 import type { GuildSettings } from "@inochi/core";
-import { Save } from "lucide-react";
+import { RotateCcw, Save } from "lucide-react";
 import { DataTools } from "./data-tools";
+import { CurvePreview } from "./curve-preview";
 
-interface Props { guildId: string; initial: GuildSettings }
+interface Props { guildId: string; initial: GuildSettings; initialRevision: number }
 
 function NumberField({ value, onChange, min, max, step = 1 }: { value: number; onChange: (value: number) => void; min: number; max: number; step?: number }) {
   return <input type="number" value={value} min={min} max={max} step={step} onChange={(event) => onChange(Number(event.target.value))} />;
@@ -15,31 +18,50 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (value: boo
   return <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />;
 }
 
-function Row({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
-  return <div className="field-row"><label className="field-label">{title}<small>{description}</small></label>{children}</div>;
+function Row({ title, description, children }: { title: string; description: string; children: ReactNode }) {
+  const id = useId();
+  const descriptionId = `${id}-description`;
+  const child = Children.only(children);
+  const control = isValidElement(child) ? cloneElement(child as ReactElement<{ id?: string; "aria-describedby"?: string }>, { id, "aria-describedby": descriptionId }) : child;
+  return <div className="field-row"><label className="field-label" htmlFor={id}>{title}<small id={descriptionId}>{description}</small></label><div className="field-control">{control}</div></div>;
 }
 
-function Section({ label, title, children }: { label: string; title: string; children: React.ReactNode }) {
-  return <section className="section" id={label}><header className="section-head"><h2 className="mono">{title}</h2><span className="status">{label}</span></header><div className="section-body">{children}</div></section>;
+function Section({ label, title, description, children }: { label: string; title: string; description: string; children: ReactNode }) {
+  return <section className="settings-section" id={label}><header className="section-head"><div><span className="mono">{label}</span><h2>{title}</h2><p>{description}</p></div></header><div className="section-body">{children}</div></section>;
 }
 
-export function SettingsForm({ guildId, initial }: Props) {
+export function SettingsForm({ guildId, initial, initialRevision }: Props) {
   const [settings, setSettings] = useState(initial);
+  const [baseline, setBaseline] = useState(initial);
+  const [revision, setRevision] = useState(initialRevision);
   const [status, setStatus] = useState("No unsaved changes");
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
   const set = (recipe: (draft: GuildSettings) => void) => {
     setSettings((current) => { const draft = structuredClone(current); recipe(draft); return draft; });
     setStatus("Unsaved changes");
+    setDirty(true);
   };
   const save = async () => {
+    if (saving) return;
+    setSaving(true);
     setStatus("Saving...");
-    const response = await fetch(`/api/guilds/${guildId}/settings`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(settings) });
-    setStatus(response.ok ? "Saved" : `Save failed: ${(await response.json()).error}`);
+    try {
+      const response = await fetch(`/api/guilds/${guildId}/settings`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ settings, expectedRevision: revision }) });
+      const result = await response.json();
+      if (!response.ok) setStatus(`Save failed: ${result.error ?? "Unknown error"}`);
+      else { setSettings(result.settings); setBaseline(result.settings); setRevision(result.revision); setDirty(false); setStatus("Saved just now"); }
+    } catch { setStatus("Save failed: network unavailable"); }
+    finally { setSaving(false); }
   };
+  const reset = () => { setSettings(structuredClone(baseline)); setDirty(false); setStatus("Changes reset"); };
   const rotation = settings.games.rotation;
   const word = settings.games.wordRace;
   const math = settings.games.mathRace;
+  const curveDiagnostics = analyzeCurve(settings);
+  const averageGain = Math.round((settings.gain.min + settings.gain.max) / 2 * settings.multipliers.global);
   return <>
-    <Section label="xp" title="XP / Core progression">
+    <Section label="xp" title="XP earning" description="Control where ordinary activity becomes progression and how often members can earn.">
       <Row title="Enable XP" description="Award XP for eligible server messages."><Toggle checked={settings.enabled} onChange={(value) => set((draft) => { draft.enabled = value; })} /></Row>
       <Row title="Minimum XP" description="Smallest base award per cooldown."><NumberField value={settings.gain.min} min={0} max={5000} onChange={(value) => set((draft) => { draft.gain.min = value; })} /></Row>
       <Row title="Maximum XP" description="Largest base award per cooldown."><NumberField value={settings.gain.max} min={0} max={5000} onChange={(value) => set((draft) => { draft.gain.max = value; })} /></Row>
@@ -52,14 +74,16 @@ export function SettingsForm({ guildId, initial }: Props) {
       <Row title="Policy locations" description="Category, channel, forum, or thread IDs. Parent rules inherit into threads."><textarea rows={4} value={settings.channelPolicy.channelIds.join("\n")} onChange={(event) => set((draft) => { draft.channelPolicy.channelIds = event.target.value.split(/\s|,/).map((id) => id.trim()).filter(Boolean); })} /></Row>
       <Row title="XP in threads" description="Threads must also pass their parent channel/category policy."><Toggle checked={settings.channelPolicy.threadsEnabled} onChange={(value) => set((draft) => { draft.channelPolicy.threadsEnabled = value; })} /></Row>
     </Section>
-    <Section label="curve" title="Curve / Level geometry">
+    <Section label="curve" title="Level curve" description="Shape every threshold with a live preview driven by the exact same math as the bot.">
+      <CurvePreview settings={settings} />
+      <div className="metric-strip"><div><span>Average award</span><strong>{averageGain.toLocaleString()} XP</strong></div><div><span>Level cap</span><strong>{settings.curve.maxLevel}</strong></div><div><span>Curve state</span><strong>{curveDiagnostics.strictlyIncreasing ? "Healthy" : "Needs review"}</strong></div></div>
       <Row title="Cubic coefficient" description="The L³ term in the XP curve."><NumberField value={settings.curve.cubic} min={0} max={100} step={.01} onChange={(value) => set((draft) => { draft.curve.cubic = value; })} /></Row>
       <Row title="Quadratic coefficient" description="The L² term in the XP curve."><NumberField value={settings.curve.quadratic} min={0} max={10000} step={.01} onChange={(value) => set((draft) => { draft.curve.quadratic = value; })} /></Row>
       <Row title="Linear coefficient" description="The L term in the XP curve."><NumberField value={settings.curve.linear} min={0} max={100000} step={.01} onChange={(value) => set((draft) => { draft.curve.linear = value; })} /></Row>
       <Row title="Round requirements" description="Round level thresholds to this interval."><NumberField value={settings.curve.rounding} min={1} max={1000} onChange={(value) => set((draft) => { draft.curve.rounding = value; })} /></Row>
       <Row title="Maximum level" description="Hard level cap for this server."><NumberField value={settings.curve.maxLevel} min={1} max={1000} onChange={(value) => set((draft) => { draft.curve.maxLevel = value; })} /></Row>
     </Section>
-    <Section label="level-up" title="Level up / Announcements">
+    <Section label="level-up" title="Announcements" description="Celebrate milestones without turning every channel into a notification stream.">
       <Row title="Announcements" description="Send a message when members level up."><Toggle checked={settings.levelUp.enabled} onChange={(value) => set((draft) => { draft.levelUp.enabled = value; })} /></Row>
       <Row title="Message" description="Supports {user}, {level}, and {xp}."><textarea rows={3} value={settings.levelUp.message} onChange={(event) => set((draft) => { draft.levelUp.message = event.target.value; })} /></Row>
       <Row title="Destination" description="Use current, dm, or a Discord channel ID."><input value={settings.levelUp.channelId} onChange={(event) => set((draft) => { draft.levelUp.channelId = event.target.value as GuildSettings["levelUp"]["channelId"]; })} /></Row>
@@ -69,20 +93,21 @@ export function SettingsForm({ guildId, initial }: Props) {
       <Row title="Minimum announcement level" description="Suppress announcements below this level."><NumberField value={settings.levelUp.minimumLevel} min={0} max={1000} onChange={(value) => set((draft) => { draft.levelUp.minimumLevel = value; })} /></Row>
       <Row title="Specific announcement levels" description="Comma-separated levels; empty allows every level."><input value={settings.levelUp.specificLevels.join(", ")} onChange={(event) => set((draft) => { draft.levelUp.specificLevels = event.target.value.split(",").map(Number).filter((value) => Number.isInteger(value) && value > 0); })} /></Row>
     </Section>
-    <Section label="rank" title="Rank / Member card">
+    <Section label="rank" title="Rank card" description="Choose how member progress appears when someone runs /rank.">
+      <div className="rank-preview"><div className="rank-preview-avatar">IN</div><div className="rank-preview-body"><div className="rank-preview-title"><strong>Member preview</strong><span><small>LEVEL</small> 28</span></div><div className="rank-preview-meta"><span>RANK <b>#12</b></span><span><b>38,351</b> TOTAL XP</span></div><div className="rank-preview-track"><i /></div><div className="rank-preview-foot"><span>3,051 / 4,000 THIS LEVEL</span><span>949 XP TO LEVEL 29</span></div></div></div>
       <Row title="Image rank card" description="Return the monochrome image from /rank."><Toggle checked={settings.rankCard.enabled} onChange={(value) => set((draft) => { draft.rankCard.enabled = value; })} /></Row>
       <Row title="Private by default" description="Make rank responses ephemeral."><Toggle checked={settings.rankCard.ephemeral} onChange={(value) => set((draft) => { draft.rankCard.ephemeral = value; })} /></Row>
       <Row title="Show cooldown" description="Expose remaining earning cooldown."><Toggle checked={settings.rankCard.showCooldown} onChange={(value) => set((draft) => { draft.rankCard.showCooldown = value; })} /></Row>
       <Row title="Relative XP" description="Show progress within the current level."><Toggle checked={settings.rankCard.relativeXp} onChange={(value) => set((draft) => { draft.rankCard.relativeXp = value; })} /></Row>
     </Section>
-    <Section label="leaderboard" title="Leaderboard / Visibility">
+    <Section label="leaderboard" title="Leaderboard" description="Set command privacy, web visibility, and the population included in rankings.">
       <Row title="Enable leaderboard" description="Allow /top and the public leaderboard page."><Toggle checked={settings.leaderboard.enabled} onChange={(value) => set((draft) => { draft.leaderboard.enabled = value; })} /></Row>
       <Row title="Web visibility" description="Choose who may view the web leaderboard."><select value={settings.leaderboard.visibility} onChange={(event) => set((draft) => { draft.leaderboard.visibility = event.target.value as GuildSettings["leaderboard"]["visibility"]; draft.leaderboard.private = event.target.value !== "public"; })}><option value="public">Public</option><option value="members">Members only</option><option value="managers">Managers only</option></select></Row>
       <Row title="Private command" description="Make /top responses ephemeral."><Toggle checked={settings.leaderboard.ephemeral} onChange={(value) => set((draft) => { draft.leaderboard.ephemeral = value; })} /></Row>
       <Row title="Minimum level" description="Hide entries below this level."><NumberField value={settings.leaderboard.minLevel} min={0} max={1000} onChange={(value) => set((draft) => { draft.leaderboard.minLevel = value; })} /></Row>
       <Row title="Maximum entries" description="Zero keeps the full leaderboard."><NumberField value={settings.leaderboard.maxEntries} min={0} max={1000000} onChange={(value) => set((draft) => { draft.leaderboard.maxEntries = value; })} /></Row>
     </Section>
-    <Section label="games" title="Games / Chat races">
+    <Section label="games" title="Chat games" description="Schedule persistent word and math races with independent winner rewards.">
       <Row title="Automatic rotation" description="Persistently schedule word and math races."><Toggle checked={rotation.enabled} onChange={(value) => set((draft) => { draft.games.rotation.enabled = value; })} /></Row>
       <Row title="Game channels" description="Comma-separated text channel IDs."><input value={rotation.channelIds.join(", ")} onChange={(event) => set((draft) => { draft.games.rotation.channelIds = event.target.value.split(",").map((value) => value.trim()).filter(Boolean); })} /></Row>
       <Row title="Rotation interval" description="Minutes between rounds in each channel."><NumberField value={rotation.intervalMinutes} min={1} max={10080} onChange={(value) => set((draft) => { draft.games.rotation.intervalMinutes = value; })} /></Row>
@@ -98,7 +123,7 @@ export function SettingsForm({ guildId, initial }: Props) {
       <Row title="Math answer window" description="Seconds available to claim a place."><NumberField value={math.answerSeconds} min={10} max={3600} onChange={(value) => set((draft) => { draft.games.mathRace.answerSeconds = value; })} /></Row>
       <Row title="Math place XP" description="One to three comma-separated rewards."><input value={math.placeXp.join(", ")} onChange={(event) => set((draft) => { draft.games.mathRace.placeXp = event.target.value.split(",").map(Number).filter((value) => Number.isInteger(value) && value >= 0).slice(0, 3); })} /></Row>
     </Section>
-    <Section label="roles" title="Rewards / Role thresholds">
+    <Section label="roles" title="Roles, multipliers, and community" description="Connect progression to Discord roles and tune exceptions for your community.">
       <Row title="Configured rewards" description="Use /rewardrole for Discord's validated role picker. Remove entries here by role ID."><textarea rows={5} value={settings.rewards.map((reward) => `${reward.roleId}:${reward.level}:${reward.keep}:${reward.noSync}`).join("\n")} onChange={(event) => set((draft) => { draft.rewards = event.target.value.split(/\r?\n/).filter(Boolean).flatMap((line) => { const [roleId, level, keep, noSync] = line.split(":"); return roleId && level ? [{ roleId, level: Number(level), keep: keep === "true", noSync: noSync === "true" }] : []; }); })} /></Row>
       <Row title="Weekly XP" description="Track and display a separate weekly leaderboard."><Toggle checked={settings.community.weeklyXp} onChange={(value) => set((draft) => { draft.community.weeklyXp = value; })} /></Row>
       <Row title="Clear on leave" description="Delete a member's XP when they leave the server."><Toggle checked={settings.community.clearOnLeave} onChange={(value) => set((draft) => { draft.community.clearOnLeave = value; })} /></Row>
@@ -113,11 +138,11 @@ export function SettingsForm({ guildId, initial }: Props) {
       <Row title="Role multiplier mode" description="How multiple matching role multipliers combine."><select value={settings.multipliers.roleMode} onChange={(event) => set((draft) => { draft.multipliers.roleMode = event.target.value as GuildSettings["multipliers"]["roleMode"]; })}><option value="largest">Largest</option><option value="smallest">Smallest</option><option value="highest">Highest role</option><option value="add">Add</option><option value="combine">Multiply</option></select></Row>
       <Row title="Channel stacking mode" description="How channel and role results combine."><select value={settings.multipliers.stackMode} onChange={(event) => set((draft) => { draft.multipliers.stackMode = event.target.value as GuildSettings["multipliers"]["stackMode"]; })}><option value="multiply">Multiply</option><option value="add">Add</option><option value="largest">Largest</option><option value="channel">Channel priority</option><option value="role">Role priority</option></select></Row>
     </Section>
-    <Section label="imports" title="Imports / Assisted migration">
+    <Section label="imports" title="Data, imports, and backups" description="Move existing progression in, take complete snapshots, and create scoped API access.">
       <div className="field-label">Use <code>/import mee6</code> for a public MEE6 leaderboard. For ProBot, Arcane, AmariBot, Lurkr, or Carl-bot, run <code>/import begin</code> in a private admin channel, invoke the source bot&apos;s public leaderboard, advance every page, then run <code>/import review</code> and <code>/import apply</code>.</div>
       <div className="status">Official JSON/CSV exports remain preferred. Ephemeral source messages cannot be captured.</div>
       <DataTools guildId={guildId} />
     </Section>
-    <div className="savebar"><span className="status">{status}</span><button className="primary" type="button" onClick={save}><Save size={15} /> Save configuration</button></div>
+    <div className="savebar"><span className="status" role="status" aria-live="polite">{status}</span><div><button type="button" onClick={reset} disabled={!dirty || saving}><RotateCcw size={15} /> Reset</button><button className="primary" type="button" onClick={save} disabled={!dirty || saving}><Save size={15} /> {saving ? "Saving..." : "Save configuration"}</button></div></div>
   </>;
 }

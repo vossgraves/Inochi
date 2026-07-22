@@ -24,6 +24,11 @@ export async function getOrCreateGuild(db: Database, guildId: string, name?: str
   return { ...guild, settings: parseGuildSettings(guild.settings) };
 }
 
+export async function getGuild(db: Database, guildId: string) {
+  const guild = await db.query.guilds.findFirst({ where: eq(guilds.id, guildId) });
+  return guild ? { ...guild, settings: parseGuildSettings(guild.settings) } : null;
+}
+
 export async function awardXp(db: Pick<Database, "insert">, input: { guildId: string; userId: string; amount: number; cooldownUntil?: Date; countMessage?: boolean; weekly?: boolean }) {
   const amount = Math.max(0, Math.floor(input.amount));
   const weeklyAmount = input.weekly === false ? 0 : amount;

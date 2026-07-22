@@ -13,8 +13,23 @@ export interface RankCardInput {
   backgroundUrl?: string;
 }
 
-function compact(value: number) {
-  return new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(value);
+function exact(value: number) {
+  return Math.max(0, Number.isFinite(value) ? Math.round(value) : 0).toLocaleString("en-US");
+}
+
+function coverCrop(image: { width: number; height: number }, x: number, y: number, width: number, height: number) {
+  const scale = Math.max(width / image.width, height / image.height);
+  const sourceWidth = width / scale;
+  const sourceHeight = height / scale;
+  return [(image.width - sourceWidth) / 2, (image.height - sourceHeight) / 2, sourceWidth, sourceHeight, x, y, width, height] as const;
+}
+
+function ellipsize(ctx: { measureText(text: string): { width: number } }, value: string, maxWidth: number) {
+  if (ctx.measureText(value).width <= maxWidth) return value;
+  const ellipsis = "...";
+  let end = value.length;
+  while (end > 0 && ctx.measureText(value.slice(0, end) + ellipsis).width > maxWidth) end--;
+  return value.slice(0, end) + ellipsis;
 }
 
 export async function renderRankCard(input: RankCardInput): Promise<Buffer> {
@@ -23,70 +38,148 @@ export async function renderRankCard(input: RankCardInput): Promise<Buffer> {
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext("2d");
 
-  ctx.fillStyle = "#171717";
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(4, 4, width - 8, height - 8, 28);
+  ctx.clip();
+
+  ctx.fillStyle = "#111418";
   ctx.fillRect(0, 0, width, height);
   if (input.backgroundUrl) {
     try {
       const background = await loadImage(input.backgroundUrl);
-      ctx.drawImage(background, 0, 0, width, height);
-      ctx.fillStyle = "#101010b8";
+      ctx.drawImage(background, ...coverCrop(background, 0, 0, width, height));
+      ctx.fillStyle = "#080b0edb";
       ctx.fillRect(0, 0, width, height);
     } catch {}
   }
-  ctx.strokeStyle = "#363636";
-  ctx.lineWidth = 2;
-  ctx.strokeRect(1, 1, width - 2, height - 2);
 
-  ctx.fillStyle = "#242424";
+  // A quiet wave over a technical grid gives the card its own monochrome texture.
+  ctx.strokeStyle = "#ffffff0d";
+  ctx.lineWidth = 1;
+  for (let x = 270; x < width; x += 34) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, height);
+    ctx.stroke();
+  }
+  for (let y = 20; y < height; y += 34) {
+    ctx.beginPath();
+    ctx.moveTo(250, y);
+    ctx.lineTo(width, y);
+    ctx.stroke();
+  }
+  ctx.strokeStyle = "#ffffff12";
+  ctx.lineWidth = 2;
+  for (const offset of [-28, 0, 28]) {
+    ctx.beginPath();
+    ctx.moveTo(220, 230 + offset);
+    ctx.bezierCurveTo(410, 115 + offset, 670, 345 + offset, 980, 145 + offset);
+    ctx.stroke();
+  }
+
+  const accent = /^#[0-9a-f]{6}$/i.test(input.accentColor ?? "") ? input.accentColor! : "#d8dde4";
+  ctx.fillStyle = "#090b0ee8";
   ctx.beginPath();
-  ctx.arc(146, 150, 92, 0, Math.PI * 2);
+  ctx.roundRect(24, 30, 216, 240, 48);
   ctx.fill();
+  ctx.strokeStyle = "#ffffff24";
+  ctx.lineWidth = 2;
+  ctx.stroke();
 
   try {
     const avatar = await loadImage(input.avatarUrl);
     ctx.save();
     ctx.beginPath();
-    ctx.arc(146, 150, 80, 0, Math.PI * 2);
+    ctx.roundRect(38, 44, 188, 188, 40);
     ctx.clip();
-    ctx.drawImage(avatar, 66, 70, 160, 160);
+    ctx.drawImage(avatar, ...coverCrop(avatar, 38, 44, 188, 188));
     ctx.restore();
   } catch {
-    ctx.fillStyle = "#737373";
-    ctx.font = "600 64px sans-serif";
+    ctx.fillStyle = "#242932";
+    ctx.beginPath();
+    ctx.roundRect(38, 44, 188, 188, 40);
+    ctx.fill();
+    ctx.fillStyle = "#f4f6f8";
+    ctx.font = "700 68px sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText(input.username.slice(0, 1).toUpperCase(), 146, 172);
+    ctx.fillText(input.username.trim().slice(0, 1).toUpperCase() || "?", 132, 162);
+  }
+  ctx.fillStyle = accent;
+  ctx.beginPath();
+  ctx.roundRect(78, 247, 108, 5, 3);
+  ctx.fill();
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#aab0b8";
+  ctx.font = "600 15px monospace";
+  ctx.fillText("INOCHI  /  MEMBER", 278, 48);
+
+  ctx.fillStyle = "#f7f8fa";
+  ctx.font = "700 37px sans-serif";
+  ctx.fillText(ellipsize(ctx, input.username, 370), 278, 99);
+
+  ctx.textAlign = "right";
+  ctx.fillStyle = "#9299a3";
+  ctx.font = "600 14px monospace";
+  ctx.fillText("LEVEL", 764, 45);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "800 50px sans-serif";
+  ctx.fillText(exact(input.level), 764, 96);
+  ctx.fillStyle = "#9299a3";
+  ctx.font = "600 14px monospace";
+  ctx.fillText("RANK", 900, 45);
+  ctx.fillStyle = "#d5d9df";
+  ctx.font = "700 31px sans-serif";
+  ctx.fillText(`#${exact(input.rank)}`, 900, 88);
+
+  const remaining = Math.max(0, input.nextLevelXp - input.xp);
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#9299a3";
+  ctx.font = "600 13px monospace";
+  ctx.fillText("TOTAL XP", 278, 139);
+  ctx.fillStyle = "#f4f6f8";
+  ctx.font = "700 23px sans-serif";
+  ctx.fillText(exact(input.xp), 278, 169);
+  ctx.fillStyle = "#9299a3";
+  ctx.font = "600 13px monospace";
+  ctx.fillText("XP TO NEXT LEVEL", 500, 139);
+  ctx.fillStyle = "#f4f6f8";
+  ctx.font = "700 23px sans-serif";
+  ctx.fillText(exact(remaining), 500, 169);
+
+  const barX = 278;
+  const barY = 202;
+  const barWidth = 622;
+  const barHeight = 26;
+  const progress = input.xp > 0 && Number.isFinite(input.progress) ? Math.max(0, Math.min(1, input.progress)) : 0;
+  ctx.fillStyle = "#ffffff1c";
+  ctx.beginPath();
+  ctx.roundRect(barX, barY, barWidth, barHeight, barHeight / 2);
+  ctx.fill();
+  if (progress > 0) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(barX, barY, barWidth, barHeight, barHeight / 2);
+    ctx.clip();
+    ctx.fillStyle = accent;
+    ctx.fillRect(barX, barY, barWidth * progress, barHeight);
+    ctx.restore();
   }
 
   ctx.textAlign = "left";
-  ctx.fillStyle = "#8d8d8d";
-  ctx.font = "500 18px monospace";
-  ctx.fillText("INOCHI / MEMBER RECORD", 278, 65);
-
-  ctx.fillStyle = "#f4f4f4";
-  ctx.font = "600 38px sans-serif";
-  ctx.fillText(input.username.slice(0, 24), 278, 116);
-
-  ctx.font = "500 21px monospace";
-  ctx.fillStyle = "#a3a3a3";
-  ctx.fillText(`RANK  #${input.rank}`, 278, 158);
-  ctx.fillText(`LEVEL  ${input.level}`, 478, 158);
+  ctx.fillStyle = "#aab0b8";
+  ctx.font = "500 14px monospace";
+  ctx.fillText(`${exact(input.xp - input.currentLevelXp)} / ${exact(input.nextLevelXp - input.currentLevelXp)} XP`, barX, 258);
   ctx.textAlign = "right";
-  ctx.fillText(`${compact(input.xp)} XP`, 900, 158);
+  ctx.fillText(`${Math.round(progress * 100)}%`, 900, 258);
 
-  const barX = 278;
-  const barY = 195;
-  const barWidth = 622;
-  ctx.fillStyle = "#333333";
-  ctx.fillRect(barX, barY, barWidth, 15);
-  ctx.fillStyle = input.accentColor ?? "#f2f2f2";
-  ctx.fillRect(barX, barY, Math.max(5, barWidth * Math.max(0, Math.min(1, input.progress))), 15);
-
-  ctx.textAlign = "left";
-  ctx.fillStyle = "#858585";
-  ctx.font = "500 16px monospace";
-  ctx.fillText(`${compact(input.xp - input.currentLevelXp)} / ${compact(input.nextLevelXp - input.currentLevelXp)} XP`, barX, 243);
-  ctx.textAlign = "right";
-  ctx.fillText(`${Math.round(input.progress * 100)}%`, 900, 243);
+  ctx.restore();
+  ctx.strokeStyle = "#ffffff24";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect(4, 4, width - 8, height - 8, 28);
+  ctx.stroke();
 
   return canvas.toBuffer("image/png");
 }

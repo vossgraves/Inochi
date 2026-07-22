@@ -44,7 +44,8 @@ export async function handleMessageXp(message: Message) {
   const levelUp = settings.levelUp;
   const shouldAnnounce = levelUp.enabled && (!levelUp.rewardsOnly || settings.rewards.some((reward) => reward.level > oldLevel && reward.level <= newLevel));
   const specificMatch = !levelUp.specificLevels.length || levelUp.specificLevels.includes(newLevel);
-  if (!shouldAnnounce || newLevel < levelUp.minimumLevel || !specificMatch || (levelUp.every > 1 && newLevel % levelUp.every !== 0)) return;
+  const intervalMatch = (levelUp.until > 0 && newLevel > levelUp.until) || levelUp.every <= 1 || newLevel % levelUp.every === 0;
+  if (!shouldAnnounce || newLevel < levelUp.minimumLevel || !specificMatch || !intervalMatch) return;
   const rewardNames = settings.rewards.filter((reward) => reward.level > oldLevel && reward.level <= newLevel).map((reward) => message.guild!.roles.cache.get(reward.roleId)?.name).filter(Boolean).join(", ");
   let content = levelUp.message
     .replaceAll("{user}", `<@${message.author.id}>`).replaceAll("{user.id}", message.author.id)
