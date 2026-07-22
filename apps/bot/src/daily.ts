@@ -19,6 +19,6 @@ export function scheduleDailyTopRoles(client: Client) {
       if (winner && !winner.roles.cache.has(role.id)) await winner.roles.add(role, "Inochi daily top member").catch(() => undefined);
     }
   };
-  void run();
-  setInterval(() => void run(), 60 * 60_000);
+  void run().catch(console.error);
+  setInterval(() => void run().catch(console.error), 60 * 60_000);
 }

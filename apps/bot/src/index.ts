@@ -1,11 +1,17 @@
 import "dotenv/config";
 import { Client, GatewayIntentBits, Partials } from "discord.js";
+import { db, sql } from "@inochi/database";
 import { handleInteraction } from "./commands/handler";
 import { handleMessageXp } from "./xp";
 import { captureImportMessage } from "./imports";
 import { scheduleGames } from "./games";
+import { scheduleDailyTopRoles } from "./daily";
 
-if (!process.env.DISCORD_TOKEN) throw new Error("DISCORD_TOKEN is required");
+if (!process.env.DISCORD_TOKEN || !process.env.DATABASE_URL || !process.env.APP_URL) {
+  throw new Error("DISCORD_TOKEN, DATABASE_URL, and APP_URL are required");
+}
+
+await db.execute(sql`select 1`);
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildModeration],
@@ -17,6 +23,7 @@ client.once("ready", (readyClient) => {
   console.log(`Inochi online as ${readyClient.user.tag} in ${readyClient.guilds.cache.size} servers.`);
   if (readyClient.user.username !== "Inochi") void readyClient.user.setUsername("Inochi").catch((error) => console.warn("Could not update the Discord username to Inochi:", error));
   scheduleGames(readyClient);
+  scheduleDailyTopRoles(readyClient);
 });
 client.on("interactionCreate", handleInteraction);
 client.on("messageCreate", async (message) => {

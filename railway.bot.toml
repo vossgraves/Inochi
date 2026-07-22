@@ -1,0 +1,7 @@
+[build]
+builder = "RAILPACK"
+buildCommand = "npm run typecheck && npm run build -w @inochi/bot"
+
+[deploy]
+startCommand = "npm run start -w @inochi/bot"
+restartPolicyType = "ALWAYS"

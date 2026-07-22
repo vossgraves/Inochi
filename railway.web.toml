@@ -1,0 +1,11 @@
+[build]
+builder = "RAILPACK"
+buildCommand = "npm run typecheck && npm run build -w @inochi/web"
+
+[deploy]
+preDeployCommand = "npm run db:migrate"
+startCommand = "npm run start -w @inochi/web"
+healthcheckPath = "/api/health"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10

@@ -13,11 +13,11 @@ The original Polaris source was created by [Colon](https://github.com/GDColon). 
 - `packages/importers`: JSON, CSV, MEE6 and public-message import adapters
 - `packages/rank-card`: monochrome PNG rank-card renderer
 
-The legacy JavaScript files remain in the repository as migration reference. Production entry points are the workspace scripts in the root `package.json`.
+Legacy runtime code has been removed. Compatibility with old Polaris exports is limited to the isolated TypeScript importer in `packages/importers/src/legacy-polaris.ts`.
 
 ## Requirements
 
-- Node.js 20+
+- Node.js 22
 - PostgreSQL 16 recommended
 - A Discord application with the Server Members and Message Content privileged intents enabled
 
@@ -25,7 +25,7 @@ The legacy JavaScript files remain in the repository as migration reference. Pro
 
 1. Copy `.env.example` to `.env` and fill in all Discord and session values.
 2. Start PostgreSQL with `docker compose up -d postgres`, or provide any PostgreSQL connection in `DATABASE_URL`.
-3. Install dependencies with `npm install`.
+3. Install dependencies with `npm ci`.
 4. Apply the schema with `npm run db:migrate`.
 5. Add the exact `DISCORD_REDIRECT_URI` to the Discord developer portal.
 6. Deploy slash commands with `npm run deploy:commands`.
@@ -40,14 +40,18 @@ npm run start -w @inochi/bot
 
 ## Railway deployment
 
-Create one Railway project with a PostgreSQL database and two services sourced from this repository:
+Create one Railway project with PostgreSQL and two services sourced from the repository root. In each service's source settings, set the Railway config file path shown below; the committed files select Railpack and provide all build, start, migration, restart, and health-check behavior.
 
-1. **Web service:** use the repository `railway.toml`. Its start command is `npm run start -w @inochi/web`.
-2. **Bot service:** override the start command to `npm run start -w @inochi/bot` and remove the HTTP health check.
-3. Share `DATABASE_URL`, Discord credentials, `APP_URL`, and `SESSION_SECRET` with both services.
-4. Set `DISCORD_REDIRECT_URI` to `https://<web-domain>/api/auth/callback`.
-5. Run `npm run db:migrate` once from the web service shell or a Railway pre-deploy command.
-6. Run `npm run deploy:commands` once after setting the Discord credentials.
+1. **Web service:** set the config path to `/railway.web.toml` and generate a public domain.
+2. **Bot service:** set the config path to `/railway.bot.toml`; do not generate a domain or add an HTTP health check.
+3. Reference the PostgreSQL service's internal `DATABASE_URL` from both services.
+4. Set `APP_URL` in both services to the web domain, without a trailing slash.
+5. Set `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_REDIRECT_URI`, and a 32-or-more-character `SESSION_SECRET` on the web service.
+6. Set `DISCORD_TOKEN` and `DISCORD_CLIENT_ID` on the bot service.
+7. Set `DISCORD_REDIRECT_URI` to `https://<web-domain>/api/auth/callback` and register the exact value in Discord's OAuth2 settings.
+8. Run `npm run deploy:commands` once with the bot service variables after deployment.
+
+The web manifest applies database migrations before each release and checks configuration plus PostgreSQL at `/api/health`. The bot verifies PostgreSQL before connecting to Discord. Optional `TOPGG_WEBHOOK_SECRET` belongs to the web service; optional `TOPGG_BOT_ID` and `S3_*` variables belong to the bot service.
 
 The web build intentionally opens no database connection. The connection is created lazily when Railway starts serving requests.
 
