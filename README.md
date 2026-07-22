@@ -53,6 +53,8 @@ Create one Railway project with PostgreSQL and two services sourced from the rep
 
 The web manifest applies database migrations before each release and checks configuration plus PostgreSQL at `/api/health`. The bot verifies PostgreSQL before connecting to Discord. Optional `TOPGG_WEBHOOK_SECRET` belongs to the web service and `TOPGG_BOT_ID` belongs to the bot service. Set the same optional `S3_*` variables on both services when dashboard rank-background uploads are enabled.
 
+The homepage's `/api/auth/invite` route creates a guild-install OAuth URL with the `bot` and `applications.commands` scopes. It requests only View Channels, Send Messages, Send Messages in Threads, Embed Links, Attach Files, Read Message History, Use External Emojis, and Manage Roles; it does not request Administrator.
+
 The web build intentionally opens no database connection. The connection is created lazily when Railway starts serving requests.
 
 ## PostgreSQL model

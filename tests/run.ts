@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { analyzeCurve, applyLevelingPreset, curveBenchmarks, defaultGuildSettings, levelForXp, parseGuildSettings, progressForXp, xpBetweenLevels, xpForLevel } from "@inochi/core";
 import { parseCsv, parseLegacyPolarisJson, parseLurkrJson, parsePublicLeaderboardMessage } from "@inochi/importers";
 import { renderRankCard } from "@inochi/rank-card";
+import { buildDiscordInviteUrl, discordInvitePermissions } from "../apps/web/lib/discord";
 
 async function main() {
   const settings = defaultGuildSettings;
@@ -14,6 +15,15 @@ async function main() {
   assert.equal(parseGuildSettings({ rankCard: {} }).rankCard.avatarShape, "rounded");
   assert.equal(parseGuildSettings({ logging: {} }).logging.levelUps, true);
   assert.equal(parseGuildSettings({ backups: {} }).backups.cadence, "weekly");
+
+  const inviteUrl = buildDiscordInviteUrl("123456789012345678");
+  assert.equal(inviteUrl.origin, "https://discord.com");
+  assert.equal(inviteUrl.pathname, "/oauth2/authorize");
+  assert.equal(inviteUrl.searchParams.get("client_id"), "123456789012345678");
+  assert.equal(inviteUrl.searchParams.get("scope"), "bot applications.commands");
+  assert.equal(inviteUrl.searchParams.get("permissions"), discordInvitePermissions.toString());
+  assert.equal(inviteUrl.searchParams.get("integration_type"), "0");
+  assert.equal(discordInvitePermissions, 275146722304n);
 
   for (const level of [0, 1, 5, 25, 100, 1000]) {
     assert.equal(levelForXp(xpForLevel(level, settings), settings), level);
