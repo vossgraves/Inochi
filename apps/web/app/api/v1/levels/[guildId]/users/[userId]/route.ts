@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { levelForXp } from "@inochi/core";
-import { and, auditLogs, db, eq, getOrCreateGuild, members } from "@inochi/database";
+import { and, auditLogs, db, eq, getOrCreateGuild, markPersistentLeaderboardDirty, members } from "@inochi/database";
 import { authenticateApi } from "../../../../../../../lib/api-auth";
 
 export async function GET(request: Request, context: { params: Promise<{ guildId: string; userId: string }> }) {
@@ -24,6 +24,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ guild
   await getOrCreateGuild(db, guildId);
   const [member] = await db.insert(members).values({ guildId, userId, xp }).onConflictDoUpdate({ target: [members.guildId, members.userId], set: { xp, updatedAt: new Date() } }).returning();
   await db.insert(auditLogs).values({ guildId, actorId: key.userId, action: "api.xp-set", metadata: { keyId: key.id, userId, xp } });
+  await markPersistentLeaderboardDirty(db, guildId);
   return NextResponse.json(member);
 }
 
@@ -34,5 +35,6 @@ export async function DELETE(request: Request, context: { params: Promise<{ guil
   if (!key) return NextResponse.json({ error: "Write access required or rate limited" }, { status: 403 });
   await db.delete(members).where(and(eq(members.guildId, guildId), eq(members.userId, userId)));
   await db.insert(auditLogs).values({ guildId, actorId: key.userId, action: "api.xp-delete", metadata: { keyId: key.id, userId } });
+  await markPersistentLeaderboardDirty(db, guildId);
   return NextResponse.json({ deleted: true });
 }

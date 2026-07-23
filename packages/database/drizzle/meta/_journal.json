@@ -43,6 +43,13 @@
       "when": 1784773987421,
       "tag": "0005_calm_vanisher",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784807545259,
+      "tag": "0006_high_vindicator",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { auditLogs, db, eq, getOrCreateGuild, members } from "@inochi/database";
+import { auditLogs, db, eq, getOrCreateGuild, markPersistentLeaderboardDirty, members } from "@inochi/database";
 import { parseCsv, parseLegacyPolarisJson, parseLurkrJson } from "@inochi/importers";
 import { requireGuildManager, validMutationRequest } from "../../../../../lib/auth";
 
@@ -27,6 +27,7 @@ export async function POST(request: Request, context: { params: Promise<{ guildI
   await db.transaction(async (tx) => {
     for (const record of records) await tx.insert(members).values({ guildId, userId: record.userId, xp: record.xp }).onConflictDoUpdate({ target: [members.guildId, members.userId], set: { xp: record.xp, updatedAt: new Date() } });
     await tx.insert(auditLogs).values({ guildId, actorId: access.session.userId, action: "xp.file-import", metadata: { source: body.source ?? "legacy-polaris", count: records.length } });
+    await markPersistentLeaderboardDirty(tx, guildId);
   });
   return NextResponse.json({ imported: records.length });
 }

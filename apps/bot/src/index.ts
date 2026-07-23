@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { Client, Events, GatewayIntentBits, Options, Partials } from "discord.js";
-import { db, eq, expireImports, getOrCreateGuild, guilds, sql } from "@inochi/database";
+import { configurePersistentLeaderboard, db, disablePersistentLeaderboard, eq, expireImports, getOrCreateGuild, guilds, markPersistentLeaderboardDirty, sql } from "@inochi/database";
 import { handleInteraction } from "./commands/handler";
 import { handleMessageXp } from "./xp";
 import { captureImportMessage } from "./imports";
@@ -11,6 +11,7 @@ import { loadApplicationEmojis } from "./emojis";
 import { registerWelcomeEvents } from "./welcome";
 import { scheduleAuditDelivery } from "./logging";
 import { expireCoinflips } from "./coinflip";
+import { schedulePersistentLeaderboards } from "./leaderboard";
 
 if (!process.env.DISCORD_TOKEN || !process.env.DATABASE_URL || !process.env.APP_URL) {
   throw new Error("DISCORD_TOKEN, DATABASE_URL, and APP_URL are required");
@@ -48,9 +49,13 @@ client.once(Events.ClientReady, (readyClient) => void (async () => {
   await loadApplicationEmojis(readyClient);
   scheduleAuditDelivery(readyClient);
   for (const guild of readyClient.guilds.cache.values()) {
-    await getOrCreateGuild(db, guild.id, guild.name);
+    const guildRow = await getOrCreateGuild(db, guild.id, guild.name);
     await db.update(guilds).set({ joinedAt: new Date(), leftAt: null }).where(eq(guilds.id, guild.id));
+    const persistent = guildRow.settings.leaderboard.persistent;
+    if (guildRow.settings.enabled && guildRow.settings.leaderboard.enabled && persistent.enabled && persistent.channelId) await configurePersistentLeaderboard(db, { guildId: guild.id, channelId: persistent.channelId });
+    else await disablePersistentLeaderboard(db, guild.id);
   }
+  schedulePersistentLeaderboards(readyClient);
 })().catch((error) => console.error("ready_listener_failure", { error })));
 registerWelcomeEvents(client);
 client.on("interactionCreate", (interaction) => {
@@ -72,7 +77,10 @@ client.on("guildMemberAdd", (member) => void (async () => {
 client.on("guildMemberRemove", (member) => void (async () => {
   const { and, db, eq, getOrCreateGuild, members } = await import("@inochi/database");
   const guild = await getOrCreateGuild(db, member.guild.id, member.guild.name);
-  if (guild.settings.community.clearOnLeave) await db.delete(members).where(and(eq(members.guildId, member.guild.id), eq(members.userId, member.id)));
+  if (guild.settings.community.clearOnLeave) {
+    await db.delete(members).where(and(eq(members.guildId, member.guild.id), eq(members.userId, member.id)));
+    await markPersistentLeaderboardDirty(db, member.guild.id);
+  }
 })().catch((error) => console.error("guild_member_remove_failure", { guildId: member.guild.id, userId: member.id, error })));
 client.on("error", console.error);
 

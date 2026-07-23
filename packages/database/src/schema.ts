@@ -40,6 +40,23 @@ export const members = pgTable("members", {
   index("members_leaderboard_idx").on(table.guildId, table.xp),
 ]);
 
+export const persistentLeaderboards = pgTable("persistent_leaderboards", {
+  guildId: text("guild_id").primaryKey().references(() => guilds.id, { onDelete: "cascade" }),
+  channelId: text("channel_id").notNull(),
+  messageId: text("message_id"),
+  enabled: boolean("enabled").default(true).notNull(),
+  dirty: boolean("dirty").default(true).notNull(),
+  dueAt: timestamp("due_at", { withTimezone: true }).defaultNow().notNull(),
+  leaseUntil: timestamp("lease_until", { withTimezone: true }),
+  lastRenderedAt: timestamp("last_rendered_at", { withTimezone: true }),
+  contentHash: text("content_hash"),
+  failureCount: integer("failure_count").default(0).notNull(),
+  lastError: text("last_error"),
+  lastFailedAt: timestamp("last_failed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [index("persistent_leaderboards_due_idx").on(table.dirty, table.dueAt, table.leaseUntil)]);
+
 export const oauthSessions = pgTable("oauth_sessions", {
   id: uuid("id").defaultRandom().primaryKey(),
   tokenHash: text("token_hash").notNull().unique(),
@@ -207,5 +224,6 @@ export const auditLogs = pgTable("audit_logs", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [index("audit_logs_guild_idx").on(table.guildId, table.createdAt)]);
 
-export const guildRelations = relations(guilds, ({ many }) => ({ members: many(members), imports: many(importSessions) }));
+export const guildRelations = relations(guilds, ({ many, one }) => ({ members: many(members), imports: many(importSessions), persistentLeaderboard: one(persistentLeaderboards) }));
 export const memberRelations = relations(members, ({ one }) => ({ guild: one(guilds, { fields: [members.guildId], references: [guilds.id] }) }));
+export const persistentLeaderboardRelations = relations(persistentLeaderboards, ({ one }) => ({ guild: one(guilds, { fields: [persistentLeaderboards.guildId], references: [guilds.id] }) }));

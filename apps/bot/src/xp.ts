@@ -1,6 +1,6 @@
 import type { Message } from "discord.js";
 import { calculateMultiplier, levelForXp } from "@inochi/core";
-import { activeVote, claimMessageXp, db, getOrCreateGuild } from "@inochi/database";
+import { activeVote, claimMessageXp, db, getOrCreateGuild, markPersistentLeaderboardDirty } from "@inochi/database";
 import { handleGuess } from "./games";
 import { syncMember } from "./commands/handler";
 import { channelAllowsXp, channelHierarchy } from "./channel-policy";
@@ -44,6 +44,7 @@ export async function handleMessageXp(message: Message) {
   const oldLevel = levelForXp(oldXp, settings);
   const newLevel = levelForXp(awarded.xp, settings);
   if (newLevel <= oldLevel) return;
+  await markPersistentLeaderboardDirty(db, message.guild.id);
   await syncMember(message.member).catch(() => undefined);
   void sendGuildLog(message.client, message.guild.id, "levelUps", "Member leveled up", `<@${message.author.id}> advanced from level **${oldLevel}** to **${newLevel}** with **${awarded.xp.toLocaleString()} XP** in <#${message.channel.id}>.`).catch(console.error);
   const levelUp = settings.levelUp;

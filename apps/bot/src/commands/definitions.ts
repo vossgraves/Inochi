@@ -1,6 +1,6 @@
 import { MAX_COINFLIP_WAGER } from "@inochi/core";
 import { importProviderIds, importProviders } from "@inochi/importers";
-import { ApplicationCommandType, PermissionFlagsBits, SlashCommandBuilder } from "discord.js";
+import { ApplicationCommandType, ChannelType, PermissionFlagsBits, SlashCommandBuilder } from "discord.js";
 
 const manage = PermissionFlagsBits.ManageGuild;
 
@@ -11,8 +11,7 @@ export const commandDefinitions = [
     .addBooleanOption((option) => option.setName("text_mode").setDescription("Show a lightweight text rank")),
   new SlashCommandBuilder().setName("top").setDescription("View the XP leaderboard")
     .addIntegerOption((option) => option.setName("page").setDescription("Leaderboard page").setMinValue(1))
-    .addUserOption((option) => option.setName("member").setDescription("Find a member"))
-    .addBooleanOption((option) => option.setName("hidden").setDescription("Only show this to you")),
+    .addUserOption((option) => option.setName("member").setDescription("Highlight a member")),
   new SlashCommandBuilder().setName("weekly").setDescription("Configure or view weekly XP")
     .addStringOption((option) => option.setName("action").setDescription("Action").addChoices(
       { name: "Leaderboard", value: "show" }, { name: "Enable", value: "enable" }, { name: "Disable", value: "disable" }, { name: "Reset", value: "reset" },
@@ -83,7 +82,15 @@ export const commandDefinitions = [
     .addSubcommand((command) => command.setName("view").setDescription("View your current background"))
     .addSubcommand((command) => command.setName("delete").setDescription("Delete your background")),
   new SlashCommandBuilder().setName("wrapped").setDescription("View your Inochi activity summary"),
-  new SlashCommandBuilder().setName("help").setDescription("View Inochi commands"),
+  new SlashCommandBuilder().setName("help").setDescription("View Inochi commands")
+    .addStringOption((option) => option.setName("command").setDescription("Command name or alias")),
+  new SlashCommandBuilder().setName("leaderboard").setDescription("Manage the persistent leaderboard").setDefaultMemberPermissions(manage)
+    .addSubcommand((command) => command.setName("setup").setDescription("Create or move the persistent leaderboard")
+      .addChannelOption((option) => option.setName("channel").setDescription("Leaderboard channel").addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true))
+      .addIntegerOption((option) => option.setName("rows").setDescription("Number of members to show").setMinValue(5).setMaxValue(25)))
+    .addSubcommand((command) => command.setName("status").setDescription("Show persistent leaderboard status"))
+    .addSubcommand((command) => command.setName("refresh").setDescription("Refresh the persistent leaderboard now"))
+    .addSubcommand((command) => command.setName("disable").setDescription("Remove the persistent leaderboard")),
   new SlashCommandBuilder().setName("diagnose").setDescription("Check Inochi configuration and permissions").setDefaultMemberPermissions(manage),
   new SlashCommandBuilder().setName("import").setDescription("Import XP from another leveling bot").setDefaultMemberPermissions(manage)
     .addStringOption((option) => option.setName("source").setDescription("Source bot (or choose in the panel)").addChoices(

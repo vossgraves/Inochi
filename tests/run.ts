@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
-import { analyzeCurve, applyLevelingPreset, curveBenchmarks, defaultGuildSettings, levelForXp, parseGuildSettings, progressForXp, xpBetweenLevels, xpForLevel } from "@inochi/core";
+import { analyzeCurve, applyLevelingPreset, curveBenchmarks, defaultGuildSettings, guildSettingsSchema, levelForXp, parseGuildSettings, progressForXp, xpBetweenLevels, xpForLevel } from "@inochi/core";
 import { fetchLurkr, importProviderIds, importProviders, parseCsv, parseLegacyPolarisJson, parseLurkrJson, parsePublicLeaderboardMessage, providerForBotUserId } from "@inochi/importers";
 import { renderRankCard } from "@inochi/rank-card";
 import { buildDiscordInviteUrl, discordInvitePermissions } from "../apps/web/lib/discord";
+import { commandDefinitions } from "../apps/bot/src/commands/definitions";
+import { currentCommandRegistry, resolveCommandMetadata, resolvePrefixCommandMetadata } from "../apps/bot/src/commands/metadata";
+import { renderCommandOverview, resolveCommandHelp } from "../apps/bot/src/commands/help";
 
 async function main() {
   const settings = defaultGuildSettings;
@@ -15,6 +18,17 @@ async function main() {
   assert.equal(parseGuildSettings({ rankCard: {} }).rankCard.avatarShape, "rounded");
   assert.equal(parseGuildSettings({ logging: {} }).logging.levelUps, true);
   assert.equal(parseGuildSettings({ backups: {} }).backups.cadence, "weekly");
+  assert.equal(guildSettingsSchema.safeParse({ leaderboard: { persistent: { enabled: true } } }).success, false);
+  assert.equal(guildSettingsSchema.safeParse({ leaderboard: { visibility: "members", persistent: { enabled: true, channelId: "123456789012345678" } } }).success, false);
+
+  const chatInputNames = commandDefinitions.filter((command) => command.type === 1).map((command) => command.name).sort();
+  assert.deepEqual(chatInputNames, currentCommandRegistry.map((command) => command.name).sort());
+  assert.equal(resolveCommandMetadata("/rank member:@Inochi")?.name, "rank");
+  assert.equal(resolvePrefixCommandMetadata("lb")?.name, "top");
+  assert.equal(resolveCommandMetadata("leaderboard")?.name, "leaderboard");
+  assert.equal(resolvePrefixCommandMetadata("leaderboard")?.name, "top");
+  assert.match(renderCommandOverview("i!"), /### Administrator commands/);
+  assert.match(resolveCommandHelp("r", "i!", "prefix") ?? "", /i!rank/);
 
   const inviteUrl = buildDiscordInviteUrl("123456789012345678");
   assert.equal(inviteUrl.origin, "https://discord.com");

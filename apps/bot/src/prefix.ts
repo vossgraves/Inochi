@@ -1,5 +1,4 @@
-import { ContainerBuilder, TextDisplayBuilder } from "@discordjs/builders";
-import { EmbedBuilder, MessageFlags, PermissionFlagsBits, type GuildMember, type Message } from "discord.js";
+import { EmbedBuilder, PermissionFlagsBits, type GuildMember, type Message } from "discord.js";
 import { levelForXp, parseGuildSettings, progressForXp, xpForLevel } from "@inochi/core";
 import {
   activeVote,
@@ -8,7 +7,6 @@ import {
   db,
   desc,
   eq,
-  getLeaderboard,
   getOrCreateGuild,
   getRank,
   guilds,
@@ -16,6 +14,8 @@ import {
   rankProfiles,
   sql,
   xpPeriods,
+  markPersistentLeaderboardDirty,
+  markPersistentLeaderboardsForUserDirty,
 } from "@inochi/database";
 import { startCoinflipMessage } from "./coinflip";
 import { startGame } from "./games";
@@ -23,26 +23,10 @@ import { showImportPanelMessage } from "./imports";
 import { recordAudit, sendGuildLog } from "./logging";
 import { backgroundUrl, deleteBackground, uploadBackground } from "./storage";
 import { INOCHI_NAVY, WARNING_AMBER } from "./theme";
+import { commandDetailComponents, commandOverviewComponents } from "./commands/help";
+import { getCommandMetadata, resolvePrefixCommandMetadata } from "./commands/metadata";
+import { renderLeaderboard } from "./leaderboard";
 
-const aliases: Record<string, string[]> = {
-  rank: ["rank", "level", "lvl", "xp", "profile", "me", "r"],
-  top: ["top", "leaderboard", "levels", "ranking", "ranks", "lb"],
-  coinflip: ["coinflip", "cf", "coin", "flip"],
-  botstatus: ["botstatus", "status", "stats", "stat", "info", "ping"],
-  help: ["help", "commands", "cmds", "h"],
-  config: ["config", "settings", "dashboard", "dash", "cfg"],
-  rewardrole: ["rewardrole", "rewards", "reward", "levelroles", "rlevel", "rr"],
-  multiplier: ["multiplier", "multi", "pmulti"],
-  addxp: ["addxp", "givexp", "modifyxp", "modifyexp", "axp"],
-  weekly: ["weekly", "week", "wtop"], winner: ["winner", "winners"], joinrole: ["joinrole", "autorole", "jr"],
-  blacklist: ["blacklist", "blockxp", "bl"], reset: ["reset", "resetxp"], refresh: ["refresh", "refreshroles"],
-  calculate: ["calculate", "calc", "progress"], sync: ["sync", "syncroles"], clear: ["clear", "clearcooldown"],
-  setup: ["setup", "wizard"], word: ["word", "wordrace"], maths: ["maths", "math", "mathrace"], vote: ["vote", "voteboost"],
-  xpchannel: ["xpchannel", "xpchannels", "channels"], privacy: ["privacy", "private"], colour: ["colour", "color"],
-  background: ["background", "bg"], wrapped: ["wrapped", "summary"], diagnose: ["diagnose", "doctor"], import: ["import", "migrate"],
-};
-
-const canonical = new Map(Object.entries(aliases).flatMap(([command, names]) => names.map((name) => [name, command])));
 const managerCommands = new Set(["winner", "joinrole", "blacklist", "reset", "refresh", "addxp", "clear", "config", "rewardrole", "multiplier", "word", "maths", "xpchannel", "diagnose", "import", "setup"]);
 const progressionCommands = new Set(["rank", "top", "word", "maths", "coinflip"]);
 
@@ -67,27 +51,11 @@ async function saveSettings(guild: Awaited<ReturnType<typeof getOrCreateGuild>>,
 }
 
 export function commandAliases(command: string) {
-  return aliases[command] ?? [command];
+  return getCommandMetadata(command as Parameters<typeof getCommandMetadata>[0])?.aliases ?? [command];
 }
 
 export function resolvePrefixCommand(name: string) {
-  return canonical.get(name.toLowerCase());
-}
-
-export function helpCopy(prefix: string, manager: boolean) {
-  const member = [
-    "**Progress**  `/rank` `/top` `/weekly` `/calculate` `/sync` `/wrapped`",
-    "**Games**  `/coinflip`",
-    "**Personal**  `/vote` `/privacy` `/colour` `/background`",
-    "**Utility**  `/botstatus` `/help`",
-  ];
-  if (manager) member.push(
-    "**Games (manager)**  `/word` `/maths`",
-    "**Configuration**  `/setup` `/config` `/xpchannel` `/rewardrole` `/multiplier` `/joinrole` `/blacklist`",
-    "**Moderation**  `/addxp` `/clear` `/reset` `/refresh` `/winner` `/import` `/diagnose`",
-  );
-  member.push(`**Prefix**  \`${prefix}\` · common aliases: \`${prefix}r\`, \`${prefix}lb\`, \`${prefix}cf\`, \`${prefix}ping\`, \`${prefix}h\``);
-  return member.join("\n");
+  return resolvePrefixCommandMetadata(name)?.name;
 }
 
 export async function handlePrefixCommand(message: Message<true>, guildRow?: Awaited<ReturnType<typeof getOrCreateGuild>>) {
@@ -109,7 +77,9 @@ export async function handlePrefixCommand(message: Message<true>, guildRow?: Awa
     void sendGuildLog(message.client, message.guildId, "commandUsage", "Prefix command used", `<@${message.author.id}> used \`${configured.prefix}${command}\` in <#${message.channelId}>.`).catch(console.error);
     if (managerCommands.has(command)) void recordAudit(message.guildId, message.author.id, "command.admin", { command, channelId: message.channelId, source: "prefix" }).catch(console.error);
     if (command === "help") {
-      await message.reply({ components: [new ContainerBuilder().setAccentColor(INOCHI_NAVY).addTextDisplayComponents(new TextDisplayBuilder().setContent(`## Inochi commands\n${helpCopy(configured.prefix, manager)}`))], flags: MessageFlags.IsComponentsV2 });
+      const payload = args[0] ? commandDetailComponents(args[0], configured.prefix, "prefix") : commandOverviewComponents(configured.prefix);
+      if (!payload) throw new Error(`Unknown command: ${args[0]}`);
+      await message.reply(payload);
     } else if (command === "rank") {
       if (!guild.settings.rankCard.enabled) throw new Error("Rank cards are disabled in this server");
       const target = message.mentions.users.first() ?? message.author;
@@ -121,8 +91,8 @@ export async function handlePrefixCommand(message: Message<true>, guildRow?: Awa
       if (!guild.settings.leaderboard.enabled) throw new Error("The leaderboard is disabled");
       const page = args.find((arg) => /^\d+$/.test(arg)) ? integerArg(args.find((arg) => /^\d+$/.test(arg)), "Page") : 1;
       if (page < 1) throw new Error("Page must be at least 1");
-      const rows = await getLeaderboard(db, message.guildId, 10, (page - 1) * 10, { minimumXp: xpForLevel(guild.settings.leaderboard.minLevel, guild.settings), maximumEntries: guild.settings.leaderboard.maxEntries });
-      await message.reply({ content: rows.map((row, index) => `\`${(page - 1) * 10 + index + 1}\` <@${row.userId}> · **Lv. ${levelForXp(row.xp, guild.settings)}** · ${row.xp.toLocaleString()} XP`).join("\n") || "No ranked members on this page.", allowedMentions: { parse: [] } });
+      const rendered = await renderLeaderboard(message.guild, guild.settings, { page, highlightedUserId: message.mentions.users.first()?.id, interactiveUserId: message.author.id });
+      await message.reply(rendered.payload);
     } else if (command === "coinflip") {
       const opponent = message.mentions.members?.first();
       const wager = Number(args.find((arg) => /^\d+$/.test(arg)));
@@ -175,13 +145,17 @@ export async function handlePrefixCommand(message: Message<true>, guildRow?: Awa
       if (!user) throw new Error(`Usage: \`${configured.prefix}${name} @member\``);
       const values = command === "reset" ? { xp: 0, weeklyXp: 0, cooldownUntil: null } : { cooldownUntil: null };
       await db.update(members).set(values).where(and(eq(members.guildId, message.guildId), eq(members.userId, user.id)));
-      if (command === "reset") await db.insert(auditLogs).values({ guildId: message.guildId, actorId: message.author.id, action: "xp.reset-member", metadata: { userId: user.id } });
+      if (command === "reset") {
+        await db.insert(auditLogs).values({ guildId: message.guildId, actorId: message.author.id, action: "xp.reset-member", metadata: { userId: user.id } });
+        await markPersistentLeaderboardDirty(db, message.guildId);
+      }
       await message.reply(command === "reset" ? `Reset all XP for ${user}.` : `Cleared ${user}'s cooldown.`);
     } else if (command === "refresh") {
       const scope = args[0]?.toLowerCase();
       if (scope === "points") {
         if (args[1] !== "RESET") throw new Error(`Usage: \`${configured.prefix}${name} points RESET\``);
         await db.update(members).set({ xp: 0, weeklyXp: 0, cooldownUntil: null }).where(eq(members.guildId, message.guildId));
+        await markPersistentLeaderboardDirty(db, message.guildId);
         await db.insert(auditLogs).values({ guildId: message.guildId, actorId: message.author.id, action: "xp.reset-all" });
         await message.reply("All server points were reset.");
       } else if (scope === "roles") {
@@ -220,6 +194,7 @@ export async function handlePrefixCommand(message: Message<true>, guildRow?: Awa
       const nextXp = operation === "set_xp" ? amount : operation === "set_level" ? xpForLevel(amount, guild.settings) : operation === "add_levels" ? xpForLevel(oldLevel + amount, guild.settings) : oldXp + amount;
       const xp = Math.max(0, nextXp);
       await db.insert(members).values({ guildId: message.guildId, userId: user.id, xp }).onConflictDoUpdate({ target: [members.guildId, members.userId], set: { xp, updatedAt: new Date() } });
+      if (levelForXp(oldXp, guild.settings) !== levelForXp(xp, guild.settings)) await markPersistentLeaderboardDirty(db, message.guildId);
       await db.insert(auditLogs).values({ guildId: message.guildId, actorId: message.author.id, action: "xp.modify", metadata: { userId: user.id, operation, amount, oldXp, newXp: xp } });
       await message.reply(`${user} now has **${xp.toLocaleString()} XP**.`);
     } else if (command === "rewardrole") {
@@ -279,6 +254,7 @@ export async function handlePrefixCommand(message: Message<true>, guildRow?: Awa
       if (value === undefined) await message.reply(`Public leaderboard privacy is **${existing?.leaderboardPrivate ? "enabled" : "disabled"}**.`);
       else {
         await db.insert(rankProfiles).values({ userId: message.author.id, leaderboardPrivate: value }).onConflictDoUpdate({ target: rankProfiles.userId, set: { leaderboardPrivate: value, updatedAt: new Date() } });
+        await markPersistentLeaderboardsForUserDirty(db, message.author.id);
         await message.reply(`Your identity will ${value ? "be anonymized" : "remain visible"} on public leaderboards.`);
       }
     } else if (command === "colour") {

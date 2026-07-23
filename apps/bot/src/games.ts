@@ -15,7 +15,9 @@ import {
   lt,
   or,
   sql,
+  markPersistentLeaderboardDirty,
 } from "@inochi/database";
+import { levelForXp } from "@inochi/core";
 import { renderMathGameImage, renderWordGameImage } from "@inochi/rank-card";
 import { INOCHI_NAVY } from "./theme";
 
@@ -134,6 +136,7 @@ export async function handleGameAnswer(message: Message) {
   if (!guild.settings.enabled) return false;
   const claimed = await claimGameWinner(db, { roundId: round.id, userId: message.author.id, weekly: guild.settings.community.weeklyXp });
   if (!claimed) return false;
+  if (levelForXp(claimed.member.xp - claimed.xpReward, guild.settings) !== levelForXp(claimed.member.xp, guild.settings)) await markPersistentLeaderboardDirty(db, message.guild.id);
   const medal = ["first", "second", "third"][claimed.place - 1] ?? `#${claimed.place}`;
   await message.reply(`Correct. You placed **${medal}** and earned **${claimed.xpReward.toLocaleString()} XP**.${claimed.complete ? " The round is complete." : ""}`);
   return true;

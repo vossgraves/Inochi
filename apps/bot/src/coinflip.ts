@@ -1,6 +1,6 @@
 import { ActionRowBuilder, ButtonBuilder, ContainerBuilder, TextDisplayBuilder } from "@discordjs/builders";
 import { ButtonStyle, MessageFlags, type ButtonInteraction, type ChatInputCommandInteraction, type Client, type GuildMember, type Message } from "discord.js";
-import { acceptCoinflipChallenge, coinflipChallenges, createCoinflipChallenge, db, declineCoinflipChallenge, eq, expireCoinflipChallenges, getOrCreateGuild, getRank } from "@inochi/database";
+import { acceptCoinflipChallenge, coinflipChallenges, createCoinflipChallenge, db, declineCoinflipChallenge, eq, expireCoinflipChallenges, getOrCreateGuild, getRank, markPersistentLeaderboardDirty } from "@inochi/database";
 import { icon } from "./emojis";
 import { INOCHI_NAVY } from "./theme";
 
@@ -95,6 +95,7 @@ export async function handleCoinflipComponent(interaction: ButtonInteraction) {
   if (outcome.status !== "completed" || !outcome.outcome || !outcome.winnerId) throw new Error("This coinflip challenge expired");
   const result = outcome.outcome;
   const winnerId = outcome.winnerId;
+  if (!settlement.idempotent) await markPersistentLeaderboardDirty(db, interaction.guildId);
   await interaction.editReply({ components: [new ContainerBuilder().setAccentColor(INOCHI_NAVY).addTextDisplayComponents(new TextDisplayBuilder().setContent(
     `## ${icon(interaction.client, "coinflip")} ${result[0]!.toUpperCase()}${result.slice(1)}\n<@${winnerId}> won **${outcome.wager.toLocaleString()} XP** from <@${winnerId === outcome.challengerId ? outcome.opponentId : outcome.challengerId}>.`,
   ))] });

@@ -13,6 +13,8 @@
     "baseUrl": ".",
     "paths": {
       "@inochi/core": ["packages/core/src/index.ts"],
+      "@inochi/api-contract": ["packages/api-contract/src/index.ts"],
+      "@inochi/api-contract/openapi": ["packages/api-contract/src/openapi.ts"],
       "@inochi/database": ["packages/database/src/index.ts"],
       "@inochi/importers": ["packages/importers/src/index.ts"],
       "@inochi/rank-card": ["packages/rank-card/src/index.ts"],

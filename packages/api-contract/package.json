@@ -1,0 +1,28 @@
+{
+  "name": "@inochi/api-contract",
+  "version": "1.0.0",
+  "description": "DTOs and OpenAPI contract for the Inochi read-only API.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./openapi": {
+      "types": "./dist/openapi.d.ts",
+      "import": "./dist/openapi.js"
+    }
+  },
+  "files": ["dist"],
+  "license": "SEE LICENSE IN LICENSE",
+  "publishConfig": { "access": "public" },
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "npm run build && node --test tests/*.test.js"
+  },
+  "engines": { "node": ">=18" }
+}

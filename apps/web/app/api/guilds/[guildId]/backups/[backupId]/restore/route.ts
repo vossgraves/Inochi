@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { levelingBackupSchema } from "@inochi/core";
-import { and, auditLogs, backupSnapshots, db, eq, guilds, members, sql } from "@inochi/database";
+import { and, auditLogs, backupSnapshots, configurePersistentLeaderboard, db, disablePersistentLeaderboard, eq, guilds, markPersistentLeaderboardDirty, members, sql } from "@inochi/database";
 import { requireGuildManager, validMutationRequest } from "../../../../../../../lib/auth";
 import { buildBackup, checksum } from "../../../../../../../lib/backups";
 
@@ -29,6 +29,10 @@ export async function POST(request: Request, context: { params: Promise<{ guildI
         cooldownUntil: member.cooldownUntil ? new Date(member.cooldownUntil) : null, hidden: member.hidden,
       }).onConflictDoUpdate({ target: [members.guildId, members.userId], set: { xp: member.xp, weeklyXp: member.weeklyXp, messageCount: member.messageCount, cooldownUntil: member.cooldownUntil ? new Date(member.cooldownUntil) : null, hidden: member.hidden, updatedAt: new Date() } });
     }
+    const persistent = payload.settings.leaderboard.persistent;
+    if (payload.settings.enabled && payload.settings.leaderboard.enabled && persistent.enabled && persistent.channelId) await configurePersistentLeaderboard(tx, { guildId, channelId: persistent.channelId });
+    else await disablePersistentLeaderboard(tx, guildId);
+    await markPersistentLeaderboardDirty(tx, guildId, { coalesceMs: 0 });
     await tx.insert(auditLogs).values({ guildId, actorId: access.session.userId, action: "backup.restore", metadata: { backupId, mode, members: payload.members.length } });
   });
   return NextResponse.json({ restored: payload.members.length, mode });

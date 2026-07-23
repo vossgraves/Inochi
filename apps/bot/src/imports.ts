@@ -18,7 +18,7 @@ import {
   type StringSelectMenuInteraction,
   type UserSelectMenuInteraction,
 } from "discord.js";
-import { and, applyImport, count, db, eq, gt, importEntries, importSessions, or, sql } from "@inochi/database";
+import { and, applyImport, count, db, eq, gt, importEntries, importSessions, markPersistentLeaderboardDirty, or, sql } from "@inochi/database";
 import {
   importProviderIds,
   importProviders,
@@ -256,6 +256,7 @@ export async function handleImportComponent(interaction: ImportComponentInteract
     const excludedBots = new Set([interaction.client.user.id, session.sourceBotId, ...Object.values(importProviders).flatMap((provider) => [...provider.botUserIds])].filter(Boolean));
     const guildMemberIds = await currentGuildMemberIds(interaction.guild);
     const imported = await applyImport(db, { sessionId: session.id, actorId: interaction.user.id, approximateXp: (level) => xpForLevel(level, guild.settings), includeUser: (userId) => guildMemberIds.has(userId) && !excludedBots.has(userId) });
+    await markPersistentLeaderboardDirty(db, interaction.guildId);
     await interaction.editReply({ components: [panel({ session: { ...session, status: "completed", completedAt: new Date(), updatedAt: new Date() }, details: `Applied **${imported.toLocaleString()}** member records.` })] });
     return true;
   }

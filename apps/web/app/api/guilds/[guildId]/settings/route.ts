@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { guildSettingsSchema } from "@inochi/core";
-import { and, auditLogs, db, eq, getOrCreateGuild, guilds, sql } from "@inochi/database";
+import { and, auditLogs, configurePersistentLeaderboard, db, disablePersistentLeaderboard, eq, getOrCreateGuild, guilds, sql } from "@inochi/database";
 import { requireGuildManager, validMutationRequest } from "../../../../../lib/auth";
 
 export async function GET(_: Request, context: { params: Promise<{ guildId: string }> }) {
@@ -28,6 +28,12 @@ export async function PUT(request: Request, context: { params: Promise<{ guildId
     const [updated] = await tx.update(guilds).set({ settings: result.data, settingsRevision: sql`${guilds.settingsRevision} + 1`, updatedAt: new Date(), ...(body?.completeSetup === true ? { setupCompletedAt: new Date(), setupVersion: 1 } : {}) })
       .where(and(eq(guilds.id, guildId), eq(guilds.settingsRevision, expectedRevision))).returning({ revision: guilds.settingsRevision });
     if (!updated) return null;
+    const persistent = result.data.leaderboard.persistent;
+    if (result.data.enabled && result.data.leaderboard.enabled && persistent.enabled && persistent.channelId) {
+      await configurePersistentLeaderboard(tx, { guildId, channelId: persistent.channelId });
+    } else {
+      await disablePersistentLeaderboard(tx, guildId);
+    }
     await tx.insert(auditLogs).values({ guildId, actorId: access.session.userId, action: body?.completeSetup === true ? "setup.complete" : "settings.update" });
     return updated.revision;
   });

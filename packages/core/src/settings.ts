@@ -63,11 +63,15 @@ export const guildSettingsSchema = z.object({
   leaderboard: z.object({
     enabled: z.boolean().default(true),
     private: z.boolean().default(false),
-    ephemeral: z.boolean().default(false),
     minLevel: z.number().int().min(0).max(1_000).default(0),
     maxEntries: z.number().int().min(0).max(1_000_000).default(0),
     visibility: z.enum(["public", "members", "managers"]).default("public"),
     vanitySlug: z.string().regex(/^[a-z0-9-]{3,40}$/).nullable().default(null),
+    persistent: z.object({
+      enabled: z.boolean().default(false),
+      channelId: z.union([snowflake, z.null()]).default(null),
+      rows: z.number().int().min(5).max(25).default(10),
+    }).default({}),
   }).default({}),
   rewards: z.array(z.object({
     roleId: snowflake,
@@ -136,6 +140,13 @@ export const guildSettingsSchema = z.object({
     threadsEnabled: z.boolean().default(false),
   }).default({}),
   manualPermissions: z.boolean().default(false),
+}).superRefine((settings, context) => {
+  if (settings.leaderboard.persistent.enabled && !settings.leaderboard.persistent.channelId) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["leaderboard", "persistent", "channelId"], message: "Choose a channel before enabling the persistent leaderboard" });
+  }
+  if (settings.leaderboard.persistent.enabled && settings.leaderboard.visibility !== "public") {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["leaderboard", "visibility"], message: "Persistent leaderboards require public visibility" });
+  }
 });
 
 export type GuildSettings = z.infer<typeof guildSettingsSchema>;

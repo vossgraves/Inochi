@@ -6,18 +6,18 @@ import {
   ChatInputCommandInteraction,
   EmbedBuilder,
   GuildMember,
-  MessageFlags,
   PermissionFlagsBits,
   type Interaction,
   type UserContextMenuCommandInteraction,
 } from "discord.js";
 import { randomUUID } from "node:crypto";
-import { ContainerBuilder, TextDisplayBuilder } from "@discordjs/builders";
 import { levelForXp, parseGuildSettings, progressForXp, xpForLevel } from "@inochi/core";
 import {
   auditLogs,
   db,
-  getLeaderboard,
+  configurePersistentLeaderboard,
+  disablePersistentLeaderboard,
+  getPersistentLeaderboardStatus,
   getOrCreateGuild,
   getRank,
   members,
@@ -29,6 +29,9 @@ import {
   activeVote,
   rankProfiles,
   xpPeriods,
+  markPersistentLeaderboardDirty,
+  markPersistentLeaderboardsForUserDirty,
+  retryPersistentLeaderboard,
 } from "@inochi/database";
 import { renderRankCard } from "@inochi/rank-card";
 import { startGame } from "../games";
@@ -36,8 +39,9 @@ import { backgroundUrl, deleteBackground, uploadBackground } from "../storage";
 import { recordAudit, sendGuildLog } from "../logging";
 import { handleImportComponent, showImportPanel } from "../imports";
 import { handleCoinflipComponent, startCoinflip } from "../coinflip";
-import { helpCopy } from "../prefix";
 import { INOCHI_NAVY, WARNING_AMBER } from "../theme";
+import { commandDetailComponents, commandOverviewComponents } from "./help";
+import { handleLeaderboardComponent, renderLeaderboard } from "../leaderboard";
 
 async function settingsFor(interaction: Interaction) {
   if (!interaction.guild) throw new Error("This command only works in a server");
@@ -100,19 +104,8 @@ async function showTop(interaction: RankInteraction, forcedUserId?: string) {
   if (!guild.settings.leaderboard.enabled) throw new Error("The leaderboard is disabled");
   const page = interaction.isChatInputCommand() ? interaction.options.getInteger("page") ?? 1 : 1;
   const targetId = forcedUserId ?? (interaction.isChatInputCommand() ? interaction.options.getUser("member")?.id : undefined);
-  const rows = await getLeaderboard(db, interaction.guildId!, 10, (page - 1) * 10, {
-    minimumXp: xpForLevel(guild.settings.leaderboard.minLevel, guild.settings),
-    maximumEntries: guild.settings.leaderboard.maxEntries,
-  });
-  const description = rows.length ? rows.map((row, index) => {
-    const position = (page - 1) * 10 + index + 1;
-    const marker = row.userId === targetId ? " **←**" : "";
-    return `\`${String(position).padStart(2, "0")}\` <@${row.userId}> · **Lv. ${levelForXp(row.xp, guild.settings)}** · ${row.xp.toLocaleString()} XP${marker}`;
-  }).join("\n") : "No ranked members on this page.";
-  await interaction.reply({
-    embeds: [new EmbedBuilder().setColor(INOCHI_NAVY).setAuthor({ name: `${interaction.guild!.name} / leaderboard`, iconURL: interaction.guild!.iconURL() ?? undefined }).setDescription(description).setFooter({ text: `Page ${page} · ${process.env.APP_URL ?? "http://localhost:3000"}/leaderboard/${interaction.guildId}` })],
-    ephemeral: guild.settings.leaderboard.ephemeral || (interaction.isChatInputCommand() && interaction.options.getBoolean("hidden") === true),
-  });
+  const rendered = await renderLeaderboard(interaction.guild!, guild.settings, { page, highlightedUserId: targetId, interactiveUserId: interaction.user.id });
+  await interaction.reply(rendered.payload);
 }
 
 function expectedRewardRoles(member: GuildMember, level: number, rewards: Array<{ roleId: string; level: number; keep: boolean; noSync: boolean }>) {
@@ -154,6 +147,7 @@ export async function handleInteraction(interaction: Interaction) {
     if (interaction.isButton()) {
       if (await handleImportComponent(interaction)) return;
       if (await handleCoinflipComponent(interaction)) return;
+      if (await handleLeaderboardComponent(interaction)) return;
       await interaction.reply({ content: "This control is no longer available.", ephemeral: true });
       return;
     }
@@ -174,7 +168,7 @@ export async function handleInteraction(interaction: Interaction) {
       return;
     }
     const command = interaction.commandName;
-    const managerCommands = new Set(["winner", "joinrole", "blacklist", "reset", "refresh", "addxp", "clear", "config", "rewardrole", "multiplier", "word", "maths", "xpchannel", "diagnose", "import", "setup"]);
+    const managerCommands = new Set(["winner", "joinrole", "blacklist", "reset", "refresh", "addxp", "clear", "config", "rewardrole", "multiplier", "word", "maths", "xpchannel", "diagnose", "import", "setup", "leaderboard"]);
     if (managerCommands.has(command) && !interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) throw new Error("Manage Server permission is required");
     void sendGuildLog(interaction.client, interaction.guildId!, "commandUsage", "Command used", `<@${interaction.user.id}> used \`/${command}\` in <#${interaction.channelId}>.`).catch(console.error);
     if (managerCommands.has(command)) void recordAudit(interaction.guildId!, interaction.user.id, "command.admin", { command, channelId: interaction.channelId }).catch(console.error);
@@ -182,8 +176,38 @@ export async function handleInteraction(interaction: Interaction) {
     if (command === "top") return showTop(interaction);
     if (command === "help") {
       const guild = await settingsFor(interaction);
-      const manager = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild) ?? false;
-      return interaction.reply({ components: [new ContainerBuilder().setAccentColor(INOCHI_NAVY).addTextDisplayComponents(new TextDisplayBuilder().setContent(`## Inochi commands\n${helpCopy(guild.settings.commands.prefix, manager)}`))], flags: MessageFlags.IsComponentsV2 });
+      const requested = interaction.options.getString("command");
+      const payload = requested ? commandDetailComponents(requested, guild.settings.commands.prefix) : commandOverviewComponents(guild.settings.commands.prefix);
+      if (!payload) throw new Error(`Unknown command: ${requested}`);
+      return interaction.reply(payload);
+    }
+    if (command === "leaderboard") {
+      const guild = await settingsFor(interaction);
+      const subcommand = interaction.options.getSubcommand();
+      if (subcommand === "status") {
+        const status = await getPersistentLeaderboardStatus(db, interaction.guildId!);
+        if (!status) return interaction.reply({ content: "Persistent leaderboard is not configured.", ephemeral: true });
+        return interaction.reply({ content: `Channel: <#${status.channelId}>\nMessage: ${status.messageId ? `[open message](https://discord.com/channels/${interaction.guildId}/${status.channelId}/${status.messageId})` : "pending"}\nState: **${status.enabled ? status.dirty ? "waiting for refresh" : "active" : "disabling"}**${status.lastError ? `\nLast error: ${status.lastError}` : ""}`, ephemeral: true });
+      }
+      if (subcommand === "refresh") {
+        const status = await retryPersistentLeaderboard(db, interaction.guildId!);
+        if (!status) throw new Error("Configure the persistent leaderboard first");
+        return interaction.reply({ content: "Persistent leaderboard refresh queued.", ephemeral: true });
+      }
+      if (subcommand === "disable") {
+        await updateSettings(interaction, (settings) => { settings.leaderboard.persistent.enabled = false; }, "settings.persistent-leaderboard");
+        await disablePersistentLeaderboard(db, interaction.guildId!);
+        return interaction.reply({ content: "Persistent leaderboard disabled. Its message will be removed shortly.", ephemeral: true });
+      }
+      const channel = interaction.options.getChannel("channel", true);
+      if (!("guildId" in channel) || channel.guildId !== interaction.guildId || !channel.isTextBased()) throw new Error("Choose a text channel in this server");
+      const rows = interaction.options.getInteger("rows") ?? guild.settings.leaderboard.persistent.rows;
+      await updateSettings(interaction, (settings) => {
+        settings.leaderboard.enabled = true;
+        settings.leaderboard.persistent = { enabled: true, channelId: channel.id, rows };
+      }, "settings.persistent-leaderboard");
+      await configurePersistentLeaderboard(db, { guildId: interaction.guildId!, channelId: channel.id });
+      return interaction.reply({ content: `Persistent leaderboard queued for ${channel} with **${rows}** rows.`, ephemeral: true });
     }
     if (command === "diagnose") {
       const guild = await settingsFor(interaction);
@@ -206,6 +230,7 @@ export async function handleInteraction(interaction: Interaction) {
       const existing = await db.query.rankProfiles.findFirst({ where: eq(rankProfiles.userId, interaction.user.id) });
       if (value === null) return interaction.reply({ content: `Public leaderboard privacy is **${existing?.leaderboardPrivate ? "enabled" : "disabled"}**.`, ephemeral: true });
       await db.insert(rankProfiles).values({ userId: interaction.user.id, leaderboardPrivate: value }).onConflictDoUpdate({ target: rankProfiles.userId, set: { leaderboardPrivate: value, updatedAt: new Date() } });
+      await markPersistentLeaderboardsForUserDirty(db, interaction.user.id);
       return interaction.reply({ content: `Your identity will ${value ? "be anonymized" : "remain visible"} on public leaderboards.`, ephemeral: true });
     }
     if (command === "colour") {
@@ -318,6 +343,7 @@ export async function handleInteraction(interaction: Interaction) {
     if (command === "reset") {
       const user = interaction.options.getUser("member", true);
       await db.update(members).set({ xp: 0, weeklyXp: 0, cooldownUntil: null }).where(and(eq(members.guildId, interaction.guildId!), eq(members.userId, user.id)));
+      await markPersistentLeaderboardDirty(db, interaction.guildId!);
       await db.insert(auditLogs).values({ guildId: interaction.guildId!, actorId: interaction.user.id, action: "xp.reset-member", metadata: { userId: user.id } });
       return interaction.reply({ content: `Reset all XP for <@${user.id}>.`, ephemeral: true });
     }
@@ -326,6 +352,7 @@ export async function handleInteraction(interaction: Interaction) {
       if (scope === "points") {
         if (interaction.options.getString("confirmation") !== "RESET") throw new Error("Type RESET in confirmation to clear every member's points");
         await db.update(members).set({ xp: 0, weeklyXp: 0, cooldownUntil: null }).where(eq(members.guildId, interaction.guildId!));
+        await markPersistentLeaderboardDirty(db, interaction.guildId!);
         await db.insert(auditLogs).values({ guildId: interaction.guildId!, actorId: interaction.user.id, action: "xp.reset-all" });
         return interaction.reply({ content: "All server points were reset.", ephemeral: true });
       }
@@ -390,6 +417,7 @@ export async function handleInteraction(interaction: Interaction) {
         : operation === "add_levels" ? xpForLevel(oldLevel + amount, guild.settings)
         : oldXp + amount;
       await db.insert(members).values({ guildId: interaction.guildId!, userId: user.id, xp: Math.max(0, nextXp) }).onConflictDoUpdate({ target: [members.guildId, members.userId], set: { xp: Math.max(0, nextXp), updatedAt: new Date() } });
+      if (levelForXp(oldXp, guild.settings) !== levelForXp(Math.max(0, nextXp), guild.settings)) await markPersistentLeaderboardDirty(db, interaction.guildId!);
       await db.insert(auditLogs).values({ guildId: interaction.guildId!, actorId: interaction.user.id, action: "xp.modify", metadata: { userId: user.id, operation, amount, oldXp, newXp: Math.max(0, nextXp) } });
       return interaction.reply({ content: `<@${user.id}> now has **${Math.max(0, nextXp).toLocaleString()} XP**.`, ephemeral: true });
     }

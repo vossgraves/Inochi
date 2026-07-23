@@ -13,7 +13,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build -w @inochi/bot && npm run build -w @inochi/web",
+    "build": "npm run build -w @inochi/api-contract && npm run build -w @inochi/sdk && npm run build -w @inochi/bot && npm run build -w @inochi/web",
     "dev": "concurrently -n bot,web -c white,gray \"npm run dev -w @inochi/bot\" \"npm run dev -w @inochi/web\"",
     "dev:bot": "npm run dev -w @inochi/bot",
     "dev:web": "npm run dev -w @inochi/web",
@@ -22,7 +22,7 @@
     "deploy:commands": "tsx apps/bot/src/deploy.ts",
     "deploy:emojis": "npm run deploy:emojis -w @inochi/bot",
     "typecheck": "tsc --noEmit",
-    "test": "tsx tests/run.ts"
+    "test": "tsx tests/run.ts && npm test -w @inochi/api-contract && npm test -w @inochi/sdk"
   },
   "dependencies": {
     "tsx": "^4.23.1"

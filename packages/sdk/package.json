@@ -1,0 +1,25 @@
+{
+  "name": "@inochi/sdk",
+  "version": "1.0.0",
+  "description": "TypeScript SDK for the Inochi read-only API.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "license": "SEE LICENSE IN LICENSE",
+  "publishConfig": { "access": "public" },
+  "sideEffects": false,
+  "scripts": {
+    "build": "npm run build -w @inochi/api-contract && tsc -p tsconfig.json",
+    "typecheck": "npm run build -w @inochi/api-contract && tsc --noEmit -p tsconfig.json",
+    "test": "npm run build && node --test tests/*.test.js"
+  },
+  "dependencies": { "@inochi/api-contract": "1.0.0" },
+  "engines": { "node": ">=18" }
+}

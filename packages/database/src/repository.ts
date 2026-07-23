@@ -2,7 +2,7 @@ import { and, desc, eq, gt, gte, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { randomInt } from "node:crypto";
 import { defaultGuildSettings, MAX_COINFLIP_WAGER, parseGuildSettings } from "@inochi/core";
 import type { Database } from "./client";
-import { auditLogs, coinflipChallenges, externalVotes, gameRounds, gameWinners, guilds, importEntries, importSessions, members, xpPeriods } from "./schema";
+import { auditLogs, coinflipChallenges, externalVotes, gameRounds, gameWinners, guilds, importEntries, importSessions, members, persistentLeaderboards, xpPeriods } from "./schema";
 
 function periodKeys(now = new Date()) {
   const day = now.toISOString().slice(0, 10);
@@ -81,7 +81,7 @@ export async function claimMessageXp(db: Database, input: { guildId: string; use
 export async function getLeaderboard(db: Database, guildId: string, limit = 10, offset = 0, options: { minimumXp?: number; maximumEntries?: number } = {}) {
   const maximum = options.maximumEntries && options.maximumEntries > 0 ? options.maximumEntries : Number.MAX_SAFE_INTEGER;
   if (offset >= maximum) return [];
-  const pageLimit = Math.min(100, limit, maximum - offset);
+  const pageLimit = Math.min(101, limit, maximum - offset);
   const xpCondition = options.minimumXp && options.minimumXp > 0 ? gte(members.xp, options.minimumXp) : gt(members.xp, 0);
   return db.select().from(members).where(and(eq(members.guildId, guildId), eq(members.hidden, false), xpCondition))
     .orderBy(desc(members.xp), members.userId).limit(pageLimit).offset(Math.max(0, offset));
@@ -93,6 +93,139 @@ export async function getRank(db: Database, guildId: string, userId: string) {
   const [row] = await db.select({ count: sql<number>`count(*)::int` }).from(members)
     .where(and(eq(members.guildId, guildId), eq(members.hidden, false), gt(members.xp, member.xp)));
   return { ...member, rank: (row?.count ?? 0) + 1 };
+}
+
+const LEADERBOARD_COALESCE_MS = 5_000;
+
+export async function configurePersistentLeaderboard(db: Pick<Database, "insert">, input: { guildId: string; channelId: string; dueAt?: Date }) {
+  const now = new Date();
+  const dueAt = input.dueAt ?? now;
+  const [row] = await db.insert(persistentLeaderboards).values({ guildId: input.guildId, channelId: input.channelId, dueAt })
+    .onConflictDoUpdate({
+      target: persistentLeaderboards.guildId,
+      set: {
+        channelId: sql`case when ${persistentLeaderboards.channelId} = ${input.channelId} or ${persistentLeaderboards.messageId} is null then ${input.channelId} else ${persistentLeaderboards.channelId} end`,
+        enabled: sql`${persistentLeaderboards.channelId} = ${input.channelId} or ${persistentLeaderboards.messageId} is null`,
+        contentHash: sql`case when ${persistentLeaderboards.channelId} = ${input.channelId} then ${persistentLeaderboards.contentHash} else null end`,
+        dirty: true,
+        dueAt,
+        leaseUntil: null,
+        updatedAt: now,
+      },
+    }).returning();
+  if (!row) throw new Error("Failed to configure persistent leaderboard");
+  return row;
+}
+
+export async function disablePersistentLeaderboard(db: Pick<Database, "update">, guildId: string) {
+  const now = new Date();
+  const [row] = await db.update(persistentLeaderboards).set({ enabled: false, dirty: true, dueAt: now, leaseUntil: null, updatedAt: now })
+    .where(eq(persistentLeaderboards.guildId, guildId)).returning();
+  return row ?? null;
+}
+
+export async function getPersistentLeaderboardStatus(db: Database, guildId: string) {
+  return (await db.query.persistentLeaderboards.findFirst({ where: eq(persistentLeaderboards.guildId, guildId) })) ?? null;
+}
+
+export async function markPersistentLeaderboardDirty(db: Pick<Database, "update">, guildId: string, options: { now?: Date; coalesceMs?: number } = {}) {
+  const now = options.now ?? new Date();
+  const dueAt = new Date(now.getTime() + (options.coalesceMs ?? LEADERBOARD_COALESCE_MS));
+  const [row] = await db.update(persistentLeaderboards).set({
+    dirty: true,
+    dueAt: sql`case
+      when ${persistentLeaderboards.leaseUntil} > ${now} then ${dueAt}
+      when ${persistentLeaderboards.dirty} then least(${persistentLeaderboards.dueAt}, ${dueAt})
+      else ${dueAt}
+    end`,
+    updatedAt: now,
+  }).where(eq(persistentLeaderboards.guildId, guildId)).returning();
+  return row ?? null;
+}
+
+export async function markPersistentLeaderboardsForUserDirty(db: Pick<Database, "update">, userId: string, options: { now?: Date; coalesceMs?: number } = {}) {
+  const now = options.now ?? new Date();
+  const dueAt = new Date(now.getTime() + (options.coalesceMs ?? LEADERBOARD_COALESCE_MS));
+  return db.update(persistentLeaderboards).set({
+    dirty: true,
+    dueAt: sql`case
+      when ${persistentLeaderboards.leaseUntil} > ${now} then ${dueAt}
+      when ${persistentLeaderboards.dirty} then least(${persistentLeaderboards.dueAt}, ${dueAt})
+      else ${dueAt}
+    end`,
+    updatedAt: now,
+  }).where(sql`${persistentLeaderboards.guildId} in (select ${members.guildId} from ${members} where ${members.userId} = ${userId})`).returning();
+}
+
+export interface PersistentLeaderboardClaim {
+  guildId: string;
+  channelId: string;
+  messageId: string | null;
+  enabled: boolean;
+  contentHash: string | null;
+  failureCount: number;
+  dueAt: Date;
+  leaseUntil: Date;
+}
+
+export async function claimDuePersistentLeaderboards(db: Database, options: { now?: Date; leaseMs?: number; limit?: number } = {}) {
+  const now = options.now ?? new Date();
+  const leaseUntil = new Date(now.getTime() + (options.leaseMs ?? 60_000));
+  const candidates = await db.select({ guildId: persistentLeaderboards.guildId }).from(persistentLeaderboards)
+    .where(and(eq(persistentLeaderboards.dirty, true), lte(persistentLeaderboards.dueAt, now), or(isNull(persistentLeaderboards.leaseUntil), lt(persistentLeaderboards.leaseUntil, now))))
+    .orderBy(persistentLeaderboards.dueAt).limit(Math.max(1, Math.min(options.limit ?? 25, 100)));
+  const claims: PersistentLeaderboardClaim[] = [];
+  for (const candidate of candidates) {
+    const [row] = await db.update(persistentLeaderboards).set({ leaseUntil, updatedAt: now }).where(and(
+      eq(persistentLeaderboards.guildId, candidate.guildId),
+      eq(persistentLeaderboards.dirty, true),
+      lte(persistentLeaderboards.dueAt, now),
+      or(isNull(persistentLeaderboards.leaseUntil), lt(persistentLeaderboards.leaseUntil, now)),
+    )).returning();
+    if (row) claims.push({ guildId: row.guildId, channelId: row.channelId, messageId: row.messageId, enabled: row.enabled, contentHash: row.contentHash, failureCount: row.failureCount, dueAt: row.dueAt, leaseUntil: row.leaseUntil! });
+  }
+  return claims;
+}
+
+export async function completePersistentLeaderboard(db: Database, claim: PersistentLeaderboardClaim, input: { channelId: string; messageId: string; contentHash: string; renderedAt?: Date }) {
+  const renderedAt = input.renderedAt ?? new Date();
+  const [row] = await db.update(persistentLeaderboards).set({
+    channelId: input.channelId,
+    messageId: input.messageId,
+    contentHash: input.contentHash,
+    dirty: sql`${persistentLeaderboards.dueAt} > ${claim.dueAt}`,
+    leaseUntil: null,
+    lastRenderedAt: renderedAt,
+    failureCount: 0,
+    lastError: null,
+    lastFailedAt: null,
+    updatedAt: renderedAt,
+  }).where(and(eq(persistentLeaderboards.guildId, claim.guildId), eq(persistentLeaderboards.leaseUntil, claim.leaseUntil))).returning();
+  return row ?? null;
+}
+
+export async function failPersistentLeaderboard(db: Database, claim: PersistentLeaderboardClaim, error: unknown, options: { now?: Date; retryAt?: Date } = {}) {
+  const now = options.now ?? new Date();
+  const retryAt = options.retryAt ?? new Date(now.getTime() + Math.min(300_000, 5_000 * 2 ** Math.min(claim.failureCount, 6)));
+  const message = (error instanceof Error ? error.message : String(error)).slice(0, 1_000);
+  const [row] = await db.update(persistentLeaderboards).set({ dirty: true, dueAt: retryAt, leaseUntil: null, failureCount: sql`${persistentLeaderboards.failureCount} + 1`, lastError: message, lastFailedAt: now, updatedAt: now })
+    .where(and(eq(persistentLeaderboards.guildId, claim.guildId), eq(persistentLeaderboards.leaseUntil, claim.leaseUntil))).returning();
+  return row ?? null;
+}
+
+export async function completeDisabledPersistentLeaderboard(db: Database, claim: PersistentLeaderboardClaim) {
+  const [row] = await db.delete(persistentLeaderboards).where(and(
+    eq(persistentLeaderboards.guildId, claim.guildId),
+    eq(persistentLeaderboards.enabled, false),
+    eq(persistentLeaderboards.leaseUntil, claim.leaseUntil),
+  )).returning();
+  return row ?? null;
+}
+
+export async function retryPersistentLeaderboard(db: Pick<Database, "update">, guildId: string, now = new Date()) {
+  const [row] = await db.update(persistentLeaderboards).set({ dirty: true, dueAt: now, leaseUntil: null, lastError: null, updatedAt: now })
+    .where(eq(persistentLeaderboards.guildId, guildId)).returning();
+  return row ?? null;
 }
 
 export async function findActiveGameRound(db: Database, guildId: string, channelId: string) {

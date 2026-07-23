@@ -9,6 +9,7 @@
     "start": "next start"
   },
   "dependencies": {
+    "@inochi/api-contract": "*",
     "@inochi/core": "*",
     "@inochi/database": "*",
     "@inochi/importers": "*",
