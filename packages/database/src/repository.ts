@@ -131,12 +131,14 @@ export async function getPersistentLeaderboardStatus(db: Database, guildId: stri
 export async function markPersistentLeaderboardDirty(db: Pick<Database, "update">, guildId: string, options: { now?: Date; coalesceMs?: number } = {}) {
   const now = options.now ?? new Date();
   const dueAt = new Date(now.getTime() + (options.coalesceMs ?? LEADERBOARD_COALESCE_MS));
+  const nowIso = now.toISOString();
+  const dueAtIso = dueAt.toISOString();
   const [row] = await db.update(persistentLeaderboards).set({
     dirty: true,
     dueAt: sql`case
-      when ${persistentLeaderboards.leaseUntil} > ${now} then ${dueAt}
-      when ${persistentLeaderboards.dirty} then least(${persistentLeaderboards.dueAt}, ${dueAt})
-      else ${dueAt}
+      when ${persistentLeaderboards.leaseUntil} > ${nowIso}::timestamptz then ${dueAtIso}::timestamptz
+      when ${persistentLeaderboards.dirty} then least(${persistentLeaderboards.dueAt}, ${dueAtIso}::timestamptz)
+      else ${dueAtIso}::timestamptz
     end`,
     updatedAt: now,
   }).where(eq(persistentLeaderboards.guildId, guildId)).returning();
@@ -146,12 +148,14 @@ export async function markPersistentLeaderboardDirty(db: Pick<Database, "update"
 export async function markPersistentLeaderboardsForUserDirty(db: Pick<Database, "update">, userId: string, options: { now?: Date; coalesceMs?: number } = {}) {
   const now = options.now ?? new Date();
   const dueAt = new Date(now.getTime() + (options.coalesceMs ?? LEADERBOARD_COALESCE_MS));
+  const nowIso = now.toISOString();
+  const dueAtIso = dueAt.toISOString();
   return db.update(persistentLeaderboards).set({
     dirty: true,
     dueAt: sql`case
-      when ${persistentLeaderboards.leaseUntil} > ${now} then ${dueAt}
-      when ${persistentLeaderboards.dirty} then least(${persistentLeaderboards.dueAt}, ${dueAt})
-      else ${dueAt}
+      when ${persistentLeaderboards.leaseUntil} > ${nowIso}::timestamptz then ${dueAtIso}::timestamptz
+      when ${persistentLeaderboards.dirty} then least(${persistentLeaderboards.dueAt}, ${dueAtIso}::timestamptz)
+      else ${dueAtIso}::timestamptz
     end`,
     updatedAt: now,
   }).where(sql`${persistentLeaderboards.guildId} in (select ${members.guildId} from ${members} where ${members.userId} = ${userId})`).returning();
