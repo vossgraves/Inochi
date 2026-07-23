@@ -1,8 +1,8 @@
 # Inochi
 
-Inochi is a self-hosted Discord leveling bot and dashboard. It is a full TypeScript rewrite of Polaris with PostgreSQL, a monochrome Next.js dashboard, atomic XP updates, image chat games, rank cards, voting boosts, backups, and migration tools.
+Inochi is a self-hosted Discord leveling bot and dashboard built with TypeScript, PostgreSQL, a monochrome Next.js dashboard, atomic XP updates, image chat games, rank cards, voting boosts, backups, and migration tools.
 
-The original Polaris source was created by [Colon](https://github.com/GDColon). Inochi remains subject to the repository's non-commercial `LICENSE`: do not sell it or add monetized features.
+Inochi is source-available for personal, educational, and non-commercial self-hosting. Redistribution, public derivative repositories, hosted services, and commercial use require written permission; see `LICENSE` for the complete terms.
 
 ## Architecture
 
@@ -13,7 +13,7 @@ The original Polaris source was created by [Colon](https://github.com/GDColon). 
 - `packages/importers`: JSON, CSV, MEE6 and public-message import adapters
 - `packages/rank-card`: monochrome PNG rank-card renderer
 
-Legacy runtime code has been removed. Compatibility with old Polaris exports is limited to the isolated TypeScript importer in `packages/importers/src/legacy-polaris.ts`.
+The production applications and compatibility tools are implemented in TypeScript. Generated JavaScript output remains untracked and is used only when packaging TypeScript libraries for Node.js.
 
 ## Requirements
 
@@ -83,7 +83,7 @@ The dashboard can create and download complete, versioned Inochi backups. Upload
 
 ## Imports
 
-The dashboard accepts an isolated legacy Polaris JSON format, Lurkr's official JSON export, and ID/XP CSV. `/import` opens a private Components V2 workflow for MEE6, Arcane, ProBot, AmariBot, Lurkr, Carl-bot, and Tatsu.
+The dashboard accepts generic legacy ID/XP JSON, Lurkr's official JSON export, and ID/XP CSV. `/import` opens a private Components V2 workflow for MEE6, Arcane, ProBot, AmariBot, Lurkr, Carl-bot, and Tatsu.
 
 Inochi verifies that the selected source bot is installed first. Known official, premium, and alternate identities are detected automatically; managers can explicitly select an installed custom/premium bot. Verified public MEE6 and Lurkr leaderboards are imported directly. Other providers fall back to provider-specific public message capture in the selected channel for 30 minutes.
 

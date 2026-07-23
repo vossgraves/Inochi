@@ -10,7 +10,7 @@ import {
   type CommandMetadata,
 } from "./metadata";
 
-export const INOCHI_HELP_INTRO = "Inochi is a self-hosted Discord leveling bot and dashboard. It is a full TypeScript rewrite of Polaris with PostgreSQL, a monochrome Next.js dashboard, atomic XP updates, image chat games, rank cards, voting boosts, backups, and migration tools.";
+export const INOCHI_HELP_INTRO = "Inochi is a self-hosted Discord leveling bot and dashboard built with TypeScript, PostgreSQL, Next.js, atomic XP updates, image chat games, rank cards, voting boosts, backups, and migration tools.";
 export const DEFAULT_APP_URL = "http://localhost:3000";
 export const DEFAULT_SUPPORT_URL = "https://github.com/vossgraves/Inochi/issues";
 

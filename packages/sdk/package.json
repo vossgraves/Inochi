@@ -18,7 +18,7 @@
   "scripts": {
     "build": "npm run build -w @inochi/api-contract && tsc -p tsconfig.json",
     "typecheck": "npm run build -w @inochi/api-contract && tsc --noEmit -p tsconfig.json",
-    "test": "npm run build && node --test tests/*.test.js"
+    "test": "npm run build && node --import tsx --test tests/*.test.ts"
   },
   "dependencies": { "@inochi/api-contract": "1.0.0" },
   "engines": { "node": ">=18" }

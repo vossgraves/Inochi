@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 export function DataTools({ guildId }: { guildId: string }) {
-  const [source, setSource] = useState("legacy-polaris");
+  const [source, setSource] = useState("legacy-json");
   const [status, setStatus] = useState("Choose an official export file.");
   const [apiKey, setApiKey] = useState("");
   const [restore, setRestore] = useState<{ snapshotId: string; createdAt: string; members: number } | null>(null);
@@ -77,9 +77,9 @@ export function DataTools({ guildId }: { guildId: string }) {
     setKeys((current) => current.filter((key) => key.id !== id));
   };
   return <div className="data-tools">
-    <div className="field-label">File migration<small>Legacy Polaris JSON, Lurkr JSON, or ID/XP CSV. Matching members are replaced; others remain.</small></div>
+    <div className="field-label">File migration<small>Legacy ID/XP JSON, Lurkr JSON, or ID/XP CSV. Matching members are replaced; others remain.</small></div>
     <div className="data-tool-controls">
-      <select value={source} onChange={(event) => setSource(event.target.value)}><option value="legacy-polaris">Legacy Polaris JSON</option><option value="lurkr">Lurkr official JSON</option><option value="csv">CSV</option></select>
+      <select value={source} onChange={(event) => setSource(event.target.value)}><option value="legacy-json">Legacy ID/XP JSON</option><option value="lurkr">Lurkr official JSON</option><option value="csv">CSV</option></select>
       <input type="file" accept={source === "csv" ? ".csv,.txt" : ".json"} onChange={(event) => upload(event.target.files?.[0])} />
       <span className="status">{status}</span>
       <a className="button" href={`/api/guilds/${guildId}/data`}>Download PostgreSQL export</a>

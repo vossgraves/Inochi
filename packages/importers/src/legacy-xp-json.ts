@@ -7,8 +7,8 @@ function xpValue(value: unknown) {
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
 }
 
-// Isolated compatibility parser for server owners with an old Polaris export.
-export function parseLegacyPolarisJson(value: unknown): ImportRecord[] {
+// Compatibility parser for common ID-to-XP JSON exports.
+export function parseLegacyXpJson(value: unknown): ImportRecord[] {
   if (!value || typeof value !== "object") return [];
   const root = value as Record<string, unknown>;
   const users = (root.users ?? root.xp ?? root) as Record<string, unknown>;

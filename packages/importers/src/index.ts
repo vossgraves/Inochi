@@ -251,4 +251,4 @@ export function parseCsv(value: string): ImportRecord[] {
 }
 
 export { fetchMee6, fetchLurkr };
-export { parseLegacyPolarisJson } from "./legacy-polaris";
+export { parseLegacyXpJson } from "./legacy-xp-json";

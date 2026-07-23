@@ -1,7 +1,28 @@
-TLDR: Do whatever you want as long as it's not for profit or commercial use.
+Inochi Source-Available License 1.0
 
-- You are free to use, fork, modify, distribute, and steal code snippets from this project
-- You may NOT use this project for commercial purposes. This includes selling the bot, or incorporating monetized features.
-- Please credit me (Colon) when you use this project, especially if your bot/fork is public
+Copyright (c) 2026 vossgraves. All rights reserved.
 
-Polaris is provided "as-is", without any kind of warranty or guarantees regarding its functionality. If you use this code, you're doing so at your own risk and are responsible for any functionality, data, legal, or other issues that arise. It's your problem, not mine.
+Permission is granted to view the source code and to run and modify Inochi
+privately for personal, educational, and non-commercial self-hosting purposes,
+subject to the conditions below.
+
+You may not, without prior written permission from the copyright holder:
+
+1. redistribute, republish, mirror, sublicense, or sell the source code or a
+   substantial portion of it;
+2. publish a modified copy or a repository derived from this software;
+3. use the software, its source code, or a derived work for commercial,
+   monetized, or revenue-generating purposes;
+4. offer the software or a derived work as a hosted or managed service; or
+5. remove or misrepresent copyright, license, or ownership notices.
+
+The copyright holder reserves every right not expressly granted by this
+license. Unauthorized repositories, mirrors, distributions, and derived works
+may be reported to their hosting provider and may be subject to takedown or
+other enforcement where permitted by applicable law and platform rules.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. IN NO EVENT SHALL THE COPYRIGHT
+HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM THE
+SOFTWARE OR ITS USE.

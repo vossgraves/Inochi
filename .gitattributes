@@ -1,2 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Generated metadata is retained for reproducible framework and schema builds.
+packages/database/drizzle/meta/** linguist-generated=true
+apps/web/next-env.d.ts linguist-generated=true

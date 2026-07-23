@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { analyzeCurve, applyLevelingPreset, curveBenchmarks, defaultGuildSettings, guildSettingsSchema, levelForXp, parseGuildSettings, progressForXp, xpBetweenLevels, xpForLevel } from "@inochi/core";
-import { fetchLurkr, importProviderIds, importProviders, parseCsv, parseLegacyPolarisJson, parseLurkrJson, parsePublicLeaderboardMessage, providerForBotUserId } from "@inochi/importers";
+import { fetchLurkr, importProviderIds, importProviders, parseCsv, parseLegacyXpJson, parseLurkrJson, parsePublicLeaderboardMessage, providerForBotUserId } from "@inochi/importers";
 import { renderRankCard } from "@inochi/rank-card";
 import { buildDiscordInviteUrl, discordInvitePermissions } from "../apps/web/lib/discord";
 import { commandDefinitions } from "../apps/bot/src/commands/definitions";
@@ -83,8 +83,8 @@ async function main() {
   assert.deepEqual(analyzeCurve(zeroCurve), { strictlyIncreasing: false, duplicateLevels: [1, 2, 3], allZero: true });
 
   const id = "123456789012345678";
-  assert.equal(parseLegacyPolarisJson({ users: { [id]: { xp: 123 } } })[0]?.xp, 123);
-  assert.equal(parseLegacyPolarisJson([{ id, xp: 456 }])[0]?.xp, 456);
+  assert.equal(parseLegacyXpJson({ users: { [id]: { xp: 123 } } })[0]?.xp, 123);
+  assert.equal(parseLegacyXpJson([{ id, xp: 456 }])[0]?.xp, 456);
   assert.equal(parseLurkrJson({ levels: [{ userId: id, xp: 90, level: 2 }] })[0]?.level, 2);
   assert.equal(parseCsv(`ID,Total XP\n${id},1234`)[0]?.xp, 1234);
   assert.equal(parseCsv(`ID,Total XP\n"${id}","12,345"`)[0]?.xp, 12345);
