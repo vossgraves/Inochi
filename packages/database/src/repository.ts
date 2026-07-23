@@ -278,24 +278,32 @@ export async function activeVote(db: Database, userId: string) {
 
 export async function expireImports(db: Database) {
   await db.update(importSessions).set({ status: "expired", updatedAt: new Date() })
-    .where(and(eq(importSessions.status, "collecting"), lt(importSessions.expiresAt, new Date())));
+    .where(and(or(eq(importSessions.status, "collecting"), eq(importSessions.status, "review")), lt(importSessions.expiresAt, new Date())));
 }
 
 export async function applyImport(db: Database, input: { sessionId: string; actorId: string; approximateXp?: (level: number) => number; includeUser?: (userId: string) => boolean }) {
   return db.transaction(async (tx) => {
-    const [session] = await tx.update(importSessions).set({ status: "completed", updatedAt: new Date() })
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${input.sessionId}))`);
+    const completedAt = new Date();
+    const [session] = await tx.update(importSessions).set({ status: "completed", completedAt, updatedAt: completedAt })
       .where(and(eq(importSessions.id, input.sessionId), eq(importSessions.status, "review"), gt(importSessions.expiresAt, new Date()))).returning();
     if (!session) throw new Error("Import session is not available");
     const entries = await tx.select().from(importEntries).where(eq(importEntries.sessionId, input.sessionId));
-    let imported = 0;
-    for (const entry of entries) {
-      if (input.includeUser && !input.includeUser(entry.userId)) continue;
-      const xp = !entry.exact && entry.level !== null && input.approximateXp ? input.approximateXp(entry.level) : entry.xp;
-      await tx.insert(members).values({ guildId: session.guildId, userId: entry.userId, xp, weeklyXp: 0 })
-        .onConflictDoUpdate({ target: [members.guildId, members.userId], set: { xp, updatedAt: new Date() } });
-      imported += 1;
+    const eligible = entries.filter((entry) => !input.includeUser || input.includeUser(entry.userId)).map((entry) => ({
+      guildId: session.guildId,
+      userId: entry.userId,
+      xp: !entry.exact && entry.level !== null && input.approximateXp ? input.approximateXp(entry.level) : entry.xp,
+      weeklyXp: 0,
+    }));
+    for (let offset = 0; offset < eligible.length; offset += 500) {
+      const batch = eligible.slice(offset, offset + 500);
+      if (!batch.length) continue;
+      await tx.insert(members).values(batch).onConflictDoUpdate({
+        target: [members.guildId, members.userId],
+        set: { xp: sql`excluded.xp`, updatedAt: completedAt },
+      });
     }
-    await tx.insert(auditLogs).values({ guildId: session.guildId, actorId: input.actorId, action: "xp.import", metadata: { source: session.source, count: imported } });
-    return imported;
+    await tx.insert(auditLogs).values({ guildId: session.guildId, actorId: input.actorId, action: "xp.import", metadata: { source: session.source, strategy: session.strategy, sourceBotId: session.sourceBotId, count: eligible.length } });
+    return eligible.length;
   });
 }

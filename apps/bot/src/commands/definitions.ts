@@ -1,4 +1,5 @@
 import { MAX_COINFLIP_WAGER } from "@inochi/core";
+import { importProviderIds, importProviders } from "@inochi/importers";
 import { ApplicationCommandType, PermissionFlagsBits, SlashCommandBuilder } from "discord.js";
 
 const manage = PermissionFlagsBits.ManageGuild;
@@ -86,8 +87,7 @@ export const commandDefinitions = [
   new SlashCommandBuilder().setName("diagnose").setDescription("Check Inochi configuration and permissions").setDefaultMemberPermissions(manage),
   new SlashCommandBuilder().setName("import").setDescription("Import XP from another leveling bot").setDefaultMemberPermissions(manage)
     .addStringOption((option) => option.setName("source").setDescription("Source bot (or choose in the panel)").addChoices(
-      { name: "MEE6", value: "mee6" }, { name: "ProBot", value: "probot" }, { name: "Arcane", value: "arcane" },
-      { name: "AmariBot", value: "amari" }, { name: "Lurkr", value: "lurkr" }, { name: "Carl-bot", value: "carlbot" },
+      ...importProviderIds.map((value) => ({ name: importProviders[value].label, value })),
     )),
   { name: "Check XP", type: ApplicationCommandType.User },
   { name: "View on leaderboard", type: ApplicationCommandType.User },

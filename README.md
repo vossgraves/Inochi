@@ -83,23 +83,18 @@ The dashboard can create and download complete, versioned Inochi backups. Upload
 
 ## Imports
 
-The dashboard accepts an isolated legacy Polaris JSON format, Lurkr's official JSON export, and ID/XP CSV. `/import mee6` reads a deliberately public MEE6 leaderboard.
+The dashboard accepts an isolated legacy Polaris JSON format, Lurkr's official JSON export, and ID/XP CSV. `/import` opens a private Components V2 workflow for MEE6, Arcane, ProBot, AmariBot, Lurkr, Carl-bot, and Tatsu.
 
-For ProBot, Arcane, AmariBot, Lurkr, and Carl-bot:
+Inochi verifies that the selected source bot is installed first. Known official, premium, and alternate identities are detected automatically; managers can explicitly select an installed custom/premium bot. Verified public MEE6 and Lurkr leaderboards are imported directly. Other providers fall back to provider-specific public message capture in the selected channel for 30 minutes.
 
-1. Run `/import begin source:<bot>` in a private administrator channel.
-2. Invoke the source bot's public leaderboard.
-3. Manually advance every page.
-4. Run `/import review`, then `/import apply`.
-
-Inochi only observes public messages in the selected channel during the 30-minute, administrator-owned session. It cannot read ephemeral messages or click another bot's components. Official exports remain preferred. If a source exposes only levels, Inochi uses the minimum XP for that level and marks the record approximate during review.
+Select **Review** after visiting every public leaderboard page, inspect exact and level-derived counts, then select **Apply** twice to confirm replacement. Inochi cannot read ephemeral messages, bypass protected web pages, click another bot's components, or safely import image-only/user-name-only leaderboards. Official exports remain preferred. If a source exposes only levels, Inochi uses the minimum XP for that level and marks the record approximate during review.
 
 ## Commands
 
 - `/rank`, `/top`, `/weekly`, `/winner`, `/calculate`, `/sync`
 - `/addxp`, `/clear`, `/config`, `/rewardrole`, `/multiplier`
 - `/joinrole`, `/blacklist`, `/reset`, `/refresh`
-- `/game start`, `/game status`, `/guess`, `/vote`, `/xpchannel`
+- `/word`, `/maths`, `/coinflip`, `/vote`, `/xpchannel`
 - `/privacy`, `/colour`, `/background`, `/wrapped`, `/diagnose`, `/help`
 - `/import`, `/botstatus`
 - User context menus: **Check XP** and **View on leaderboard**

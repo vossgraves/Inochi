@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { analyzeCurve, applyLevelingPreset, curveBenchmarks, defaultGuildSettings, levelForXp, parseGuildSettings, progressForXp, xpBetweenLevels, xpForLevel } from "@inochi/core";
-import { parseCsv, parseLegacyPolarisJson, parseLurkrJson, parsePublicLeaderboardMessage } from "@inochi/importers";
+import { fetchLurkr, importProviderIds, importProviders, parseCsv, parseLegacyPolarisJson, parseLurkrJson, parsePublicLeaderboardMessage, providerForBotUserId } from "@inochi/importers";
 import { renderRankCard } from "@inochi/rank-card";
 import { buildDiscordInviteUrl, discordInvitePermissions } from "../apps/web/lib/discord";
 
@@ -73,10 +73,38 @@ async function main() {
   assert.equal(parseLegacyPolarisJson([{ id, xp: 456 }])[0]?.xp, 456);
   assert.equal(parseLurkrJson({ levels: [{ userId: id, xp: 90, level: 2 }] })[0]?.level, 2);
   assert.equal(parseCsv(`ID,Total XP\n${id},1234`)[0]?.xp, 1234);
+  assert.equal(parseCsv(`ID,Total XP\n"${id}","12,345"`)[0]?.xp, 12345);
   assert.deepEqual(
     parsePublicLeaderboardMessage(`#1 <@${id}> XP: 12,345`, 1)[0],
     { userId: id, xp: 12345, level: undefined, exact: true, metric: "xp", page: 1 },
   );
+  assert.deepEqual(importProviderIds, ["mee6", "arcane", "probot", "amari", "lurkr", "carlbot", "tatsu"]);
+  assert.equal(importProviders.arcane.botUserIds.length, 3);
+  assert.equal(providerForBotUserId("1217870452253397082")?.id, "arcane");
+  assert.equal(providerForBotUserId("172002255350792192")?.id, "tatsu");
+  assert.equal(importProviders.arcane.fetchPublic, undefined);
+  const arcaneResult = importProviders.arcane.parseMessage({ content: "Leaderboard · Page 2/3", embeds: [{ fields: [{ name: "#1", value: `<@${id}> · Level 8 · XP: 9,876` }] }] });
+  assert.equal(arcaneResult.recognized, true);
+  assert.deepEqual(arcaneResult.records[0], { userId: id, xp: 9876, level: undefined, exact: true, metric: "xp", page: 2 });
+  const imageOnly = importProviders.carlbot.parseMessage({ content: "Level leaderboard", embeds: [], attachments: [{ name: "leaderboard.png", contentType: "image/png" }] });
+  assert.equal(imageOnly.records.length, 0);
+  assert.ok(imageOnly.warnings.some((warning) => warning.includes("Image-only")));
+  const tatsuResult = importProviders.tatsu.parseMessage({ content: `Server leaderboard\n<@${id}> Score: 500`, embeds: [] });
+  assert.equal(tatsuResult.records[0]?.metric, "server_score");
+  assert.equal(importProviders.tatsu.parseMessage({ content: `Global leaderboard\n<@${id}> Score: 500`, embeds: [] }).records.length, 0);
+  assert.equal(importProviders.tatsu.parseMessage({ content: `Leaderboard\n<@${id}> Score: 500`, embeds: [] }).records.length, 0);
+  assert.equal(importProviders.probot.parseMessage({ content: `Voice leaderboard\n<@${id}> XP: 500`, embeds: [] }).records.length, 0);
+  assert.equal(importProviders.probot.parseMessage({ content: `Leaderboard\n<@${id}> XP: 500`, embeds: [] }).records.length, 0);
+  assert.equal(importProviders.probot.parseMessage({ content: `Weekly text leaderboard\n<@${id}> XP: 500`, embeds: [] }).records.length, 0);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ levels: [{ userId: id, xp: 321, level: 4 }] }), { status: 200, headers: { "content-type": "application/json" } });
+  try {
+    const publicLurkr = await fetchLurkr("705009450855039039");
+    assert.equal(publicLurkr.records[0]?.xp, 321);
+    assert.equal(publicLurkr.pages, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 
   const rankCard = await renderRankCard({
     username: "A deliberately long username that must be measured and ellipsized",

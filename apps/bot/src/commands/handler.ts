@@ -157,12 +157,12 @@ export async function handleInteraction(interaction: Interaction) {
       await interaction.reply({ content: "This control is no longer available.", ephemeral: true });
       return;
     }
-    if (interaction.isStringSelectMenu()) {
+    if (interaction.isAnySelectMenu()) {
       if (await handleImportComponent(interaction)) return;
       await interaction.reply({ content: "This menu is no longer available.", ephemeral: true });
       return;
     }
-    if (interaction.isModalSubmit() || interaction.isAnySelectMenu()) {
+    if (interaction.isModalSubmit()) {
       await interaction.reply({ content: "This interaction is no longer available.", ephemeral: true });
       return;
     }
@@ -346,6 +346,7 @@ export async function handleInteraction(interaction: Interaction) {
     }
     if (command === "botstatus") return interaction.reply({ embeds: [new EmbedBuilder().setColor(INOCHI_NAVY).setTitle("Inochi status").addFields(
       { name: "Servers", value: interaction.client.guilds.cache.size.toLocaleString(), inline: true },
+      { name: "Shards", value: String(interaction.client.ws.shards.size), inline: true },
       { name: "Ping", value: `${interaction.client.ws.ping} ms`, inline: true },
       { name: "Uptime", value: `${Math.floor(interaction.client.uptime / 60_000)} min`, inline: true },
     )] });

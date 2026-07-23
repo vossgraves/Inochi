@@ -169,14 +169,23 @@ export const importSessions = pgTable("import_sessions", {
   guildId: text("guild_id").notNull().references(() => guilds.id, { onDelete: "cascade" }),
   createdBy: text("created_by").notNull(),
   source: importSource("source").notNull(),
+  strategy: text("strategy"),
+  sourceBotId: text("source_bot_id"),
   status: importStatus("status").default("collecting").notNull(),
   channelId: text("channel_id"),
   sourceMessageId: text("source_message_id"),
   rawSnapshot: jsonb("raw_snapshot").$type<unknown[]>().default(sql`'[]'::jsonb`).notNull(),
+  capturedPages: jsonb("captured_pages").$type<number[]>().default(sql`'[]'::jsonb`).notNull(),
+  warnings: jsonb("warnings").$type<string[]>().default(sql`'[]'::jsonb`).notNull(),
+  recognizedMessages: integer("recognized_messages").default(0).notNull(),
+  lastError: text("last_error"),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
-});
+}, (table) => [
+  index("import_sessions_active_lookup_idx").on(table.guildId, table.channelId, table.sourceBotId, table.status, table.expiresAt),
+]);
 
 export const importEntries = pgTable("import_entries", {
   sessionId: uuid("session_id").notNull().references(() => importSessions.id, { onDelete: "cascade" }),

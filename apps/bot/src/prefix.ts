@@ -133,7 +133,7 @@ export async function handlePrefixCommand(message: Message<true>, guildRow?: Awa
       if (!message.channel.isTextBased() || message.channel.isDMBased()) throw new Error("Choose a server text channel");
       await startGame(message.channel, command === "word" ? "word" : "math");
     } else if (command === "botstatus") {
-      await message.reply(`**Inochi status** · ${message.client.guilds.cache.size.toLocaleString()} servers · ${message.client.ws.ping} ms · ${Math.floor(message.client.uptime / 60_000)} min uptime`);
+      await message.reply(`**Inochi status** · ${message.client.guilds.cache.size.toLocaleString()} servers · ${message.client.ws.shards.size} shard${message.client.ws.shards.size === 1 ? "" : "s"} · ${message.client.ws.ping} ms · ${Math.floor(message.client.uptime / 60_000)} min uptime`);
     } else if (command === "config" || command === "setup") {
       const suffix = command === "setup" ? "/setup" : "";
       await message.reply(`${process.env.APP_URL ?? "http://localhost:3000"}/dashboard/${message.guildId}${suffix}`);
