@@ -21,8 +21,9 @@
     "db:migrate": "tsx packages/database/src/migrate.ts",
     "deploy:commands": "tsx apps/bot/src/deploy.ts",
     "deploy:emojis": "npm run deploy:emojis -w @inochi/bot",
+    "brand:assets": "tsx scripts/generate-brand-assets.ts",
     "typecheck": "tsc --noEmit",
-    "test": "tsx tests/run.ts && npm test -w @inochi/api-contract && npm test -w @inochi/sdk"
+    "test": "tsx tests/run.ts && npm test -w @inochi/importers && npm test -w @inochi/api-contract && npm test -w @inochi/sdk"
   },
   "dependencies": {
     "tsx": "^4.23.1"

@@ -2,10 +2,44 @@ import { relations, sql } from "drizzle-orm";
 import { bigint, boolean, check, index, integer, jsonb, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import type { GuildSettings } from "@inochi/core";
 
+export const CURRENT_IMPORT_FORMAT_VERSION = 1;
+export type ImportXpApplyMode = "replace" | "missing" | "greater";
+export type ImportSettingsKey = keyof GuildSettings;
+
+export interface ImportPreviewSummary {
+  records: number;
+  exact: number;
+  approximate: number;
+  invalid: number;
+  duplicate: number;
+}
+
+export interface ImportExpectedPages {
+  count?: number;
+  first?: number;
+  last?: number;
+  complete?: boolean;
+}
+
+export interface PersistedImportApplyResult {
+  sessionId: string;
+  guildId: string;
+  xpMode: ImportXpApplyMode;
+  candidates: number;
+  applied: number;
+  skipped: number;
+  excluded: number;
+  settingsApplied: ImportSettingsKey[];
+  settingsRevision: number;
+  backupId: string;
+  completedAt: string;
+}
+
 export const importStatus = pgEnum("import_status", ["collecting", "review", "completed", "cancelled", "expired"]);
 export const importSource = pgEnum("import_source", ["json", "csv", "mee6", "arcane", "probot", "lurkr", "amari", "tatsu", "carlbot"]);
 export const gameType = pgEnum("game_type", ["word", "math"]);
-export const backupTrigger = pgEnum("backup_trigger", ["manual", "pre_restore", "scheduled"]);
+export const backupTrigger = pgEnum("backup_trigger", ["manual", "pre_restore", "pre_import", "scheduled"]);
+export const importXpApplyMode = pgEnum("import_xp_apply_mode", ["replace", "missing", "greater"]);
 export const coinflipSide = pgEnum("coinflip_side", ["heads", "tails"]);
 export const coinflipStatus = pgEnum("coinflip_status", ["pending", "completed", "declined", "expired"]);
 
@@ -160,7 +194,7 @@ export const backupSnapshots = pgTable("backup_snapshots", {
   guildId: text("guild_id").notNull().references(() => guilds.id, { onDelete: "cascade" }),
   createdBy: text("created_by").notNull(),
   trigger: backupTrigger("trigger").notNull(),
-  formatVersion: integer("format_version").default(1).notNull(),
+  formatVersion: integer("format_version").default(CURRENT_IMPORT_FORMAT_VERSION).notNull(),
   checksum: text("checksum").notNull(),
   payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
   deliveredAt: timestamp("delivered_at", { withTimezone: true }),
@@ -186,15 +220,24 @@ export const importSessions = pgTable("import_sessions", {
   guildId: text("guild_id").notNull().references(() => guilds.id, { onDelete: "cascade" }),
   createdBy: text("created_by").notNull(),
   source: importSource("source").notNull(),
+  formatVersion: integer("format_version").default(1).notNull(),
   strategy: text("strategy"),
   sourceBotId: text("source_bot_id"),
   status: importStatus("status").default("collecting").notNull(),
   channelId: text("channel_id"),
   sourceMessageId: text("source_message_id"),
+  baselineSettingsRevision: integer("baseline_settings_revision"),
+  settingsProposal: jsonb("settings_proposal").$type<Partial<GuildSettings>>(),
+  selectedSettings: jsonb("selected_settings").$type<ImportSettingsKey[]>().default(sql`'[]'::jsonb`).notNull(),
+  xpApplyMode: importXpApplyMode("xp_apply_mode").default("replace").notNull(),
+  previewSummary: jsonb("preview_summary").$type<ImportPreviewSummary>().default(sql`'{"records":0,"exact":0,"approximate":0,"invalid":0,"duplicate":0}'::jsonb`).notNull(),
+  expectedPages: jsonb("expected_pages").$type<ImportExpectedPages>(),
   rawSnapshot: jsonb("raw_snapshot").$type<unknown[]>().default(sql`'[]'::jsonb`).notNull(),
   capturedPages: jsonb("captured_pages").$type<number[]>().default(sql`'[]'::jsonb`).notNull(),
   warnings: jsonb("warnings").$type<string[]>().default(sql`'[]'::jsonb`).notNull(),
   recognizedMessages: integer("recognized_messages").default(0).notNull(),
+  safetyBackupId: uuid("safety_backup_id").references(() => backupSnapshots.id, { onDelete: "set null" }),
+  applyResult: jsonb("apply_result").$type<PersistedImportApplyResult>(),
   lastError: text("last_error"),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
@@ -202,6 +245,24 @@ export const importSessions = pgTable("import_sessions", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
   index("import_sessions_active_lookup_idx").on(table.guildId, table.channelId, table.sourceBotId, table.status, table.expiresAt),
+  uniqueIndex("import_sessions_safety_backup_idx").on(table.safetyBackupId),
+  check("import_sessions_format_version_check", sql`${table.formatVersion} > 0`),
+  check("import_sessions_baseline_revision_check", sql`${table.baselineSettingsRevision} is null or ${table.baselineSettingsRevision} > 0`),
+]);
+
+export const importCapturedMessages = pgTable("import_captured_messages", {
+  sessionId: uuid("session_id").notNull().references(() => importSessions.id, { onDelete: "cascade" }),
+  messageId: text("message_id").notNull(),
+  revision: integer("revision").default(1).notNull(),
+  contentHash: text("content_hash").notNull(),
+  sourcePage: integer("source_page"),
+  snapshot: jsonb("snapshot").$type<unknown>().notNull(),
+  records: jsonb("records").$type<Array<{ userId: string; xp: number; level?: number; exact: boolean; metric: string; page?: number }>>().default(sql`'[]'::jsonb`).notNull(),
+  capturedAt: timestamp("captured_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.sessionId, table.messageId] }),
+  index("import_captured_messages_session_page_idx").on(table.sessionId, table.sourcePage),
 ]);
 
 export const importEntries = pgTable("import_entries", {

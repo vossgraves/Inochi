@@ -1,8 +1,17 @@
 import { EmbedBuilder, type Client } from "discord.js";
 import { and, auditLogs, db, eq, getGuild, isNull, lt } from "@inochi/database";
-import { INOCHI_NAVY } from "./theme";
+import { ERROR_RED, INFO_CYAN, INOCHI_NAVY, SUCCESS_GREEN, WARNING_AMBER } from "./theme";
+import { icon, type InochiEmoji } from "./emojis";
 
 export type LogCategory = "commandUsage" | "levelUps" | "adminActions" | "errors" | "backups";
+
+const logPresentation: Record<LogCategory, { emoji: InochiEmoji; color: number }> = {
+  commandUsage: { emoji: "info", color: INFO_CYAN },
+  levelUps: { emoji: "levelup", color: SUCCESS_GREEN },
+  adminActions: { emoji: "security", color: WARNING_AMBER },
+  errors: { emoji: "error", color: ERROR_RED },
+  backups: { emoji: "backup", color: INOCHI_NAVY },
+};
 
 export async function recordAudit(guildId: string, actorId: string, action: string, metadata: Record<string, unknown> = {}) {
   await db.insert(auditLogs).values({ guildId, actorId, action, metadata });
@@ -14,7 +23,8 @@ export async function sendGuildLog(client: Client, guildId: string, category: Lo
   const guild = client.guilds.cache.get(guildId);
   const channel = guild?.channels.cache.get(row.settings.logging.channelId);
   if (!channel?.isTextBased() || channel.isDMBased() || !channel.isSendable()) return false;
-  await channel.send({ embeds: [new EmbedBuilder().setColor(INOCHI_NAVY).setTitle(title).setDescription(description).setTimestamp()], allowedMentions: { parse: [] } });
+  const presentation = logPresentation[category];
+  await channel.send({ embeds: [new EmbedBuilder().setColor(presentation.color).setTitle(`${icon(client, presentation.emoji)} ${title}`).setDescription(description).setTimestamp()], allowedMentions: { parse: [] } });
   return true;
 }
 

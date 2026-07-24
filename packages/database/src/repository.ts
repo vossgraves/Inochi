@@ -1,8 +1,10 @@
-import { and, desc, eq, gt, gte, isNull, lt, lte, or, sql } from "drizzle-orm";
-import { randomInt } from "node:crypto";
-import { defaultGuildSettings, MAX_COINFLIP_WAGER, parseGuildSettings } from "@inochi/core";
+import { and, desc, eq, gt, gte, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
+import { createHash, randomInt } from "node:crypto";
+import { applyLevelingPreset, defaultGuildSettings, MAX_COINFLIP_WAGER, parseGuildSettings } from "@inochi/core";
+import type { GuildSettings, LevelingBackup, LevelingPresetName } from "@inochi/core";
 import type { Database } from "./client";
-import { auditLogs, coinflipChallenges, externalVotes, gameRounds, gameWinners, guilds, importEntries, importSessions, members, persistentLeaderboards, xpPeriods } from "./schema";
+import { auditLogs, backupSnapshots, coinflipChallenges, externalVotes, gameRounds, gameWinners, guilds, importCapturedMessages, importEntries, importSessions, members, persistentLeaderboards, xpPeriods } from "./schema";
+import type { ImportExpectedPages, ImportPreviewSummary, ImportSettingsKey, ImportXpApplyMode, PersistedImportApplyResult } from "./schema";
 
 function periodKeys(now = new Date()) {
   const day = now.toISOString().slice(0, 10);
@@ -418,29 +420,251 @@ export async function expireImports(db: Database) {
     .where(and(or(eq(importSessions.status, "collecting"), eq(importSessions.status, "review")), lt(importSessions.expiresAt, new Date())));
 }
 
+export interface ImportApplyResult extends PersistedImportApplyResult {
+  idempotent: boolean;
+  changedUserIds: string[];
+  toLocaleString(): string;
+}
+
+export async function prepareImportSession(db: Database, input: {
+  sessionId: string;
+  formatVersion?: number;
+  preset?: LevelingPresetName | null;
+  settingsProposal?: Partial<GuildSettings> | null;
+  selectedSettings?: ImportSettingsKey[];
+  xpApplyMode?: ImportXpApplyMode;
+  previewSummary?: ImportPreviewSummary;
+  expectedPages?: ImportExpectedPages | null;
+  allowApproximate?: boolean;
+}) {
+  const now = new Date();
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${input.sessionId}))`);
+    await tx.execute(sql`select id from import_sessions where id = ${input.sessionId} for update`);
+    const session = await tx.query.importSessions.findFirst({ where: eq(importSessions.id, input.sessionId) });
+    if (!session || (session.status !== "collecting" && session.status !== "review") || session.expiresAt <= now) {
+      throw new Error("Import session is not available");
+    }
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`${session.guildId}:import`}))`);
+    await tx.execute(sql`select id from guilds where id = ${session.guildId} for share`);
+    const guild = await tx.query.guilds.findFirst({ where: eq(guilds.id, session.guildId) });
+    if (!guild) throw new Error("Import guild not found");
+    const currentSettings = parseGuildSettings(guild.settings);
+    const presetSettings = input.preset ? applyLevelingPreset(currentSettings, input.preset) : null;
+    const generatedProposal = presetSettings ? { gain: presetSettings.gain, curve: presetSettings.curve, multipliers: presetSettings.multipliers } : input.preset === null ? null : undefined;
+    const selectedSettings = [...new Set(input.selectedSettings ?? session.selectedSettings)];
+    const proposal = generatedProposal === undefined ? input.settingsProposal === undefined ? session.settingsProposal : input.settingsProposal : generatedProposal;
+    if (input.preset === undefined && input.settingsProposal === undefined && session.baselineSettingsRevision !== null && session.baselineSettingsRevision !== guild.settingsRevision) {
+      throw new Error("Guild settings changed after the import preview was created; review the import again");
+    }
+    if (selectedSettings.some((key) => !(key in parseGuildSettings(guild.settings)))) throw new Error("Import selected an unknown settings section");
+    if (selectedSettings.some((key) => !proposal || !(key in proposal))) throw new Error("Import selected a settings section without a proposal");
+    const formatVersion = input.formatVersion ?? session.formatVersion;
+    if (!Number.isSafeInteger(formatVersion) || formatVersion < 1) throw new Error("Import format version must be a positive integer");
+    const entries = await tx.select({ exact: importEntries.exact }).from(importEntries).where(eq(importEntries.sessionId, session.id));
+    if (!entries.length) throw new Error("No leaderboard records have been captured yet");
+    const approximate = entries.filter((entry) => !entry.exact).length;
+    if (approximate > 0 && input.allowApproximate === false) throw new Error("This source exposed levels without exact XP, but no verified conversion preset is available");
+    const previewSummary = { records: entries.length, exact: entries.length - approximate, approximate, invalid: 0, duplicate: 0 } satisfies ImportPreviewSummary;
+    const replacesProposal = input.preset !== undefined || input.settingsProposal !== undefined;
+    const [prepared] = await tx.update(importSessions).set({
+      status: "review",
+      formatVersion,
+      baselineSettingsRevision: replacesProposal ? guild.settingsRevision : session.baselineSettingsRevision,
+      settingsProposal: proposal,
+      selectedSettings,
+      xpApplyMode: input.xpApplyMode ?? session.xpApplyMode,
+      previewSummary: input.previewSummary ?? previewSummary,
+      expectedPages: input.expectedPages === undefined ? session.expectedPages : input.expectedPages,
+      updatedAt: now,
+    }).where(and(eq(importSessions.id, session.id), or(eq(importSessions.status, "collecting"), eq(importSessions.status, "review")))).returning();
+    if (!prepared) throw new Error("Import session changed while preparing its review");
+    return prepared;
+  });
+}
+
+function importApplyResult(result: PersistedImportApplyResult, idempotent: boolean, changedUserIds: string[] = []): ImportApplyResult {
+  return { ...result, idempotent, changedUserIds, toLocaleString: () => result.applied.toLocaleString() };
+}
+
+export async function recordImportCapturedMessage(db: Database, input: {
+  sessionId: string;
+  messageId: string;
+  snapshot: unknown;
+  records?: Array<{ userId: string; xp: number; level?: number; exact: boolean; metric: string; page?: number }>;
+  sourcePage?: number;
+  capturedAt?: Date;
+}) {
+  const now = input.capturedAt ?? new Date();
+  const serialized = JSON.stringify(input.snapshot);
+  if (serialized === undefined) throw new Error("Captured import message must be JSON serializable");
+  const contentHash = createHash("sha256").update(serialized).digest("hex");
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${input.sessionId}))`);
+    await tx.execute(sql`select id from import_sessions where id = ${input.sessionId} for update`);
+    const session = await tx.query.importSessions.findFirst({ where: eq(importSessions.id, input.sessionId) });
+    if (!session) throw new Error("Import session not found");
+    const existing = await tx.query.importCapturedMessages.findFirst({
+      where: and(eq(importCapturedMessages.sessionId, input.sessionId), eq(importCapturedMessages.messageId, input.messageId)),
+    });
+    if (existing?.contentHash === contentHash) return { message: existing, changed: false };
+    if (session.status !== "collecting" || session.expiresAt <= now) throw new Error("Import session is not collecting messages");
+    const [captured] = await tx.insert(importCapturedMessages).values({
+      sessionId: input.sessionId,
+      messageId: input.messageId,
+      snapshot: input.snapshot,
+      records: input.records ?? [],
+      sourcePage: input.sourcePage,
+      contentHash,
+      capturedAt: now,
+      updatedAt: now,
+    }).onConflictDoUpdate({
+      target: [importCapturedMessages.sessionId, importCapturedMessages.messageId],
+      set: {
+        snapshot: input.snapshot,
+        records: input.records ?? [],
+        sourcePage: input.sourcePage,
+        contentHash,
+        revision: sql`${importCapturedMessages.revision} + 1`,
+        capturedAt: now,
+        updatedAt: now,
+      },
+      setWhere: ne(importCapturedMessages.contentHash, contentHash),
+    }).returning();
+    if (captured) return { message: captured, changed: true };
+    throw new Error("Could not record captured import message");
+  });
+}
+
 export async function applyImport(db: Database, input: { sessionId: string; actorId: string; approximateXp?: (level: number) => number; includeUser?: (userId: string) => boolean }) {
   return db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${input.sessionId}))`);
+    await tx.execute(sql`select id from import_sessions where id = ${input.sessionId} for update`);
+    const session = await tx.query.importSessions.findFirst({ where: eq(importSessions.id, input.sessionId) });
+    if (!session) throw new Error("Import session not found");
+    if (session.status === "completed" && session.applyResult) return importApplyResult(session.applyResult, true);
     const completedAt = new Date();
-    const [session] = await tx.update(importSessions).set({ status: "completed", completedAt, updatedAt: completedAt })
-      .where(and(eq(importSessions.id, input.sessionId), eq(importSessions.status, "review"), gt(importSessions.expiresAt, new Date()))).returning();
-    if (!session) throw new Error("Import session is not available");
-    const entries = await tx.select().from(importEntries).where(eq(importEntries.sessionId, input.sessionId));
-    const eligible = entries.filter((entry) => !input.includeUser || input.includeUser(entry.userId)).map((entry) => ({
+    if (session.status !== "review" || session.expiresAt <= completedAt) throw new Error("Import session is not available");
+
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`${session.guildId}:import`}))`);
+    await tx.execute(sql`select id from guilds where id = ${session.guildId} for update`);
+    const guild = await tx.query.guilds.findFirst({ where: eq(guilds.id, session.guildId) });
+    if (!guild) throw new Error("Import guild not found");
+
+    const selectedSettings = [...new Set(session.selectedSettings)];
+    const currentSettings = parseGuildSettings(guild.settings);
+    if (session.baselineSettingsRevision !== null && session.baselineSettingsRevision !== guild.settingsRevision) {
+      throw new Error("Guild settings changed after the import preview was created; review the import again");
+    }
+    let nextSettings: GuildSettings = currentSettings;
+    if (selectedSettings.length) {
+      if (session.baselineSettingsRevision === null) throw new Error("Import settings were not reviewed against the current guild settings");
+      if (!session.settingsProposal) throw new Error("Selected import settings have no proposal");
+      const knownSettings = new Set(Object.keys(currentSettings));
+      const invalid = selectedSettings.find((key) => !knownSettings.has(key) || !(key in session.settingsProposal!));
+      if (invalid) throw new Error(`Invalid or missing imported settings section: ${invalid}`);
+      const proposal = session.settingsProposal as Partial<GuildSettings>;
+      const selected = Object.fromEntries(selectedSettings.map((key) => [key, proposal[key]]));
+      nextSettings = parseGuildSettings({ ...currentSettings, ...selected });
+    }
+
+    await tx.execute(sql`select user_id from members where guild_id = ${session.guildId} order by user_id for update`);
+    const memberSnapshot = await tx.select().from(members).where(eq(members.guildId, session.guildId));
+    const backup: LevelingBackup = {
+      format: "inochi-leveling-backup",
+      version: 1,
+      createdAt: completedAt.toISOString(),
       guildId: session.guildId,
-      userId: entry.userId,
-      xp: !entry.exact && entry.level !== null && input.approximateXp ? input.approximateXp(entry.level) : entry.xp,
-      weeklyXp: 0,
-    }));
+      settings: currentSettings,
+      members: memberSnapshot.map((member) => ({
+        userId: member.userId,
+        xp: member.xp,
+        weeklyXp: member.weeklyXp,
+        messageCount: member.messageCount,
+        cooldownUntil: member.cooldownUntil?.toISOString() ?? null,
+        hidden: member.hidden,
+      })),
+    };
+    const checksum = createHash("sha256").update(JSON.stringify(backup)).digest("hex");
+    const [safetyBackup] = await tx.insert(backupSnapshots).values({
+      guildId: session.guildId,
+      createdBy: input.actorId,
+      trigger: "pre_import",
+      checksum,
+      payload: backup,
+    }).returning();
+    if (!safetyBackup) throw new Error("Could not create pre-import safety backup");
+
+    let settingsRevision = guild.settingsRevision;
+    if (selectedSettings.length) {
+      const [updatedGuild] = await tx.update(guilds).set({
+        settings: nextSettings,
+        settingsRevision: sql`${guilds.settingsRevision} + 1`,
+        updatedAt: completedAt,
+      }).where(and(eq(guilds.id, session.guildId), eq(guilds.settingsRevision, guild.settingsRevision))).returning({ settingsRevision: guilds.settingsRevision });
+      if (!updatedGuild) throw new Error("Guild settings changed while applying the import");
+      settingsRevision = updatedGuild.settingsRevision;
+      const persistent = nextSettings.leaderboard.persistent;
+      if (nextSettings.enabled && nextSettings.leaderboard.enabled && persistent.enabled && persistent.channelId) {
+        await configurePersistentLeaderboard(tx, { guildId: session.guildId, channelId: persistent.channelId, dueAt: completedAt });
+      } else {
+        await disablePersistentLeaderboard(tx, session.guildId);
+      }
+    }
+
+    const entries = await tx.select().from(importEntries).where(eq(importEntries.sessionId, input.sessionId));
+    const eligible = entries.filter((entry) => !input.includeUser || input.includeUser(entry.userId)).map((entry) => {
+      const xp = Math.max(0, Math.floor(!entry.exact && entry.level !== null && input.approximateXp ? input.approximateXp(entry.level) : entry.xp));
+      if (!Number.isSafeInteger(xp)) throw new Error(`Imported XP is outside the safe integer range for user ${entry.userId}`);
+      return { guildId: session.guildId, userId: entry.userId, xp, weeklyXp: 0 };
+    });
+    let applied = 0;
+    const changedUserIds: string[] = [];
     for (let offset = 0; offset < eligible.length; offset += 500) {
       const batch = eligible.slice(offset, offset + 500);
       if (!batch.length) continue;
-      await tx.insert(members).values(batch).onConflictDoUpdate({
-        target: [members.guildId, members.userId],
-        set: { xp: sql`excluded.xp`, updatedAt: completedAt },
-      });
+      if (session.xpApplyMode === "missing") {
+        const inserted = await tx.insert(members).values(batch).onConflictDoNothing({ target: [members.guildId, members.userId] }).returning({ userId: members.userId });
+        applied += inserted.length;
+        changedUserIds.push(...inserted.map((member) => member.userId));
+      } else {
+        const changed = await tx.insert(members).values(batch).onConflictDoUpdate({
+          target: [members.guildId, members.userId],
+          set: { xp: sql`excluded.xp`, updatedAt: completedAt },
+          ...(session.xpApplyMode === "greater" ? { setWhere: lt(members.xp, sql`excluded.xp`) } : {}),
+        }).returning({ userId: members.userId });
+        applied += changed.length;
+        changedUserIds.push(...changed.map((member) => member.userId));
+      }
     }
-    await tx.insert(auditLogs).values({ guildId: session.guildId, actorId: input.actorId, action: "xp.import", metadata: { source: session.source, strategy: session.strategy, sourceBotId: session.sourceBotId, count: eligible.length } });
-    return eligible.length;
+    await markPersistentLeaderboardDirty(tx, session.guildId, { now: completedAt, coalesceMs: 0 });
+    const result: PersistedImportApplyResult = {
+      sessionId: session.id,
+      guildId: session.guildId,
+      xpMode: session.xpApplyMode,
+      candidates: eligible.length,
+      applied,
+      skipped: eligible.length - applied,
+      excluded: entries.length - eligible.length,
+      settingsApplied: selectedSettings as ImportSettingsKey[],
+      settingsRevision,
+      backupId: safetyBackup.id,
+      completedAt: completedAt.toISOString(),
+    };
+    await tx.insert(auditLogs).values({
+      guildId: session.guildId,
+      actorId: input.actorId,
+      action: "xp.import",
+      metadata: { source: session.source, strategy: session.strategy, sourceBotId: session.sourceBotId, formatVersion: session.formatVersion, ...result },
+    });
+    const [completed] = await tx.update(importSessions).set({
+      status: "completed",
+      safetyBackupId: safetyBackup.id,
+      applyResult: result,
+      completedAt,
+      updatedAt: completedAt,
+    }).where(and(eq(importSessions.id, session.id), eq(importSessions.status, "review"))).returning({ id: importSessions.id });
+    if (!completed) throw new Error("Import session changed while it was being applied");
+    return importApplyResult(result, false, changedUserIds);
   });
 }

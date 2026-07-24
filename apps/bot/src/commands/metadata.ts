@@ -246,7 +246,7 @@ export const commandRegistry = [
     examples: ["/diagnose", "{prefix}doctor"],
   },
   {
-    name: "import", category: "admin", description: "Import XP from another leveling bot or a supported data source.",
+    name: "import", category: "admin", description: "Import XP and reviewed progression settings from another leveling bot.",
     aliases: ["import", "migrate"], slashUsage: ["/import", "/import source:provider"], prefixUsage: ["import", "import provider"],
     options: [{ name: "source", type: "string", description: "Source bot, or omit it to choose from the import panel." }], subcommands: [],
     permission: managerPermission, examples: ["/import", "{prefix}migrate mee6"],

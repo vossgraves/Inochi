@@ -50,6 +50,13 @@
       "when": 1784807545259,
       "tag": "0006_high_vindicator",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1784817727698,
+      "tag": "0007_many_payback",
+      "breakpoints": true
     }
   ]
 }

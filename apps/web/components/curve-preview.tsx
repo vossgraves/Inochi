@@ -47,10 +47,10 @@ export function CurvePreview({ settings, compactView = false }: { settings: Guil
     </div>
     <div className="curve-plot" aria-label={`${mode === "total" ? "Total XP" : "XP per level"} curve through level ${maxLevel}`}>
       <div className="curve-canvas" style={markerStyle}><svg viewBox="0 0 100 106" role="img" preserveAspectRatio="none">
-          <defs><linearGradient id={`${id}-fill`} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="var(--accent)" stopOpacity=".28"/><stop offset="1" stopColor="var(--accent)" stopOpacity="0"/></linearGradient></defs>
+          <defs><linearGradient id={`${id}-fill`} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="var(--cyan)" stopOpacity=".28"/><stop offset="1" stopColor="var(--accent)" stopOpacity="0"/></linearGradient></defs>
           {[20, 40, 60, 80].map((y) => <line key={y} x1="0" x2="100" y1={y} y2={y} className="curve-gridline" />)}
           <polygon points={`0,100 ${points} 100,100`} fill={`url(#${id}-fill)`} />
-          <polyline points={points} className="curve-line" />
+          <polyline points={points} className="curve-line" pathLength="1" />
           <line x1={selectedX} x2={selectedX} y1="8" y2="100" className="curve-cursor" />
         </svg><i className="curve-marker" /></div>
       <div className="curve-axis"><span>LV 1</span><span>LV {maxLevel}</span></div>

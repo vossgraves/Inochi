@@ -1,14 +1,15 @@
 "use client";
 
-import { Children, cloneElement, isValidElement, useId, useState } from "react";
+import { Children, cloneElement, isValidElement, useEffect, useId, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
-import { analyzeCurve, applyLevelingPreset, detectLevelingPreset, levelingPresets } from "@inochi/core";
+import { analyzeCurve, applyLevelingPreset, detectLevelingPreset, guildSettingsSchema, levelingPresets } from "@inochi/core";
 import type { LevelingPresetName } from "@inochi/core";
 import { MAX_COINFLIP_WAGER, type GuildSettings } from "@inochi/core";
 import { RotateCcw, Save } from "lucide-react";
 import { DataTools } from "./data-tools";
 import { CurvePreview } from "./curve-preview";
 import { RankCardEditor } from "./rank-card-editor";
+import { OperationStatus, type OperationState } from "./operation-status";
 
 interface Props { guildId: string; initial: GuildSettings; initialRevision: number }
 
@@ -29,7 +30,7 @@ function Row({ title, description, children }: { title: string; description: str
 }
 
 function Section({ label, title, description, children }: { label: string; title: string; description: string; children: ReactNode }) {
-  return <section className="settings-section" id={label}><header className="section-head"><div><span className="mono">{label}</span><h2>{title}</h2><p>{description}</p></div></header><div className="section-body">{children}</div></section>;
+  return <section className="settings-section" id={label} data-reveal><header className="section-head"><div><span className="mono">{label}</span><h2>{title}</h2><p>{description}</p></div></header><div className="section-body">{children}</div></section>;
 }
 
 export function SettingsForm({ guildId, initial, initialRevision }: Props) {
@@ -39,6 +40,12 @@ export function SettingsForm({ guildId, initial, initialRevision }: Props) {
   const [status, setStatus] = useState("No unsaved changes");
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (!dirty) return;
+    const beforeUnload = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => window.removeEventListener("beforeunload", beforeUnload);
+  }, [dirty]);
   const set = (recipe: (draft: GuildSettings) => void) => {
     setSettings((current) => { const draft = structuredClone(current); recipe(draft); return draft; });
     setStatus("Unsaved changes");
@@ -46,6 +53,12 @@ export function SettingsForm({ guildId, initial, initialRevision }: Props) {
   };
   const save = async () => {
     if (saving) return;
+    const validation = guildSettingsSchema.safeParse(settings);
+    if (!validation.success) {
+      const issue = validation.error.issues[0];
+      setStatus(issue ? `Save failed: ${issue.path.join(" > ") || "settings"} — ${issue.message}` : "Save failed: invalid settings");
+      return;
+    }
     setSaving(true);
     setStatus("Saving...");
     try {
@@ -64,6 +77,7 @@ export function SettingsForm({ guildId, initial, initialRevision }: Props) {
   const curveDiagnostics = analyzeCurve(settings);
   const activePreset = detectLevelingPreset(settings);
   const averageGain = Math.round((settings.gain.min + settings.gain.max) / 2 * settings.multipliers.global);
+  const operationState: OperationState = saving ? "pending" : status.startsWith("Save failed") ? "error" : dirty ? "warning" : status.startsWith("Saved") || status === "Changes reset" ? "success" : "idle";
   const applyPreset = (name: LevelingPresetName) => {
     setSettings((current) => applyLevelingPreset(current, name));
     setStatus(`${levelingPresets[name].label} preset ready to review`);
@@ -180,6 +194,6 @@ export function SettingsForm({ guildId, initial, initialRevision }: Props) {
       <div className="status">Official JSON/CSV exports remain preferred. Ephemeral source messages cannot be captured.</div>
       <DataTools guildId={guildId} />
     </Section>
-    <div className="savebar"><span className="status" role="status" aria-live="polite">{status}</span><div><button type="button" onClick={reset} disabled={!dirty || saving}><RotateCcw size={15} /> Reset</button><button className="primary" type="button" onClick={save} disabled={!dirty || saving}><Save size={15} /> {saving ? "Saving..." : "Save configuration"}</button></div></div>
+    <div className="savebar"><OperationStatus state={operationState} compact>{status}</OperationStatus><div><button type="button" onClick={reset} disabled={!dirty || saving}><RotateCcw size={15} /> Reset</button><button className="primary" type="button" onClick={save} disabled={!dirty || saving}><Save size={15} /> {saving ? "Saving..." : "Save configuration"}</button></div></div>
   </>;
 }

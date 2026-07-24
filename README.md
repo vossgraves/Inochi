@@ -87,7 +87,9 @@ The dashboard accepts generic legacy ID/XP JSON, Lurkr's official JSON export, a
 
 Inochi verifies that the selected source bot is installed first. Known official, premium, and alternate identities are detected automatically; managers can explicitly select an installed custom/premium bot. Verified public MEE6 and Lurkr leaderboards are imported directly. Other providers fall back to provider-specific public message capture in the selected channel for 30 minutes.
 
-Select **Review** after visiting every public leaderboard page, inspect exact and level-derived counts, then select **Apply** twice to confirm replacement. Inochi cannot read ephemeral messages, bypass protected web pages, click another bot's components, or safely import image-only/user-name-only leaderboards. Official exports remain preferred. If a source exposes only levels, Inochi uses the minimum XP for that level and marks the record approximate during review.
+Select **Review** after visiting every public leaderboard page, inspect exact and level-derived counts, choose the XP behavior, then select **Apply** twice to confirm. Inochi cannot read ephemeral messages, bypass protected web pages, click another bot's components, or safely import image-only/user-name-only leaderboards. Official exports remain preferred. If a source exposes only levels, Inochi uses the reviewed provider preset to calculate minimum XP and marks the record approximate.
+
+MEE6, Lurkr, and AmariBot imports offer their verified progression preset during review. The preset is preselected but can be disabled before confirmation; unrelated server settings are never changed. Sources without a verified curve must expose exact XP, and Tatsu server score remains an explicitly disclosed one-to-one conversion. Every apply creates a safety backup and commits the selected settings, XP changes, audit event, and persistent-leaderboard refresh atomically.
 
 ## Commands
 

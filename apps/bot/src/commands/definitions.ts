@@ -92,7 +92,7 @@ export const commandDefinitions = [
     .addSubcommand((command) => command.setName("refresh").setDescription("Refresh the persistent leaderboard now"))
     .addSubcommand((command) => command.setName("disable").setDescription("Remove the persistent leaderboard")),
   new SlashCommandBuilder().setName("diagnose").setDescription("Check Inochi configuration and permissions").setDefaultMemberPermissions(manage),
-  new SlashCommandBuilder().setName("import").setDescription("Import XP from another leveling bot").setDefaultMemberPermissions(manage)
+  new SlashCommandBuilder().setName("import").setDescription("Import XP and compatible progression settings").setDefaultMemberPermissions(manage)
     .addStringOption((option) => option.setName("source").setDescription("Source bot (or choose in the panel)").addChoices(
       ...importProviderIds.map((value) => ({ name: importProviders[value].label, value })),
     )),

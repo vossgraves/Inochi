@@ -5,6 +5,7 @@ import {
   StringSelectMenuBuilder,
   TextDisplayBuilder,
 } from "@discordjs/builders";
+import { createHash } from "node:crypto";
 import {
   ButtonStyle,
   MessageFlags,
@@ -18,7 +19,7 @@ import {
   type StringSelectMenuInteraction,
   type UserSelectMenuInteraction,
 } from "discord.js";
-import { and, applyImport, count, db, eq, gt, importEntries, importSessions, markPersistentLeaderboardDirty, or, sql } from "@inochi/database";
+import { and, applyImport, count, CURRENT_IMPORT_FORMAT_VERSION, db, eq, gt, importCapturedMessages, importEntries, importSessions, or, prepareImportSession, sql } from "@inochi/database";
 import {
   importProviderIds,
   importProviders,
@@ -28,13 +29,15 @@ import {
   type ImportStrategy,
   type LeaderboardMessageSnapshot,
 } from "@inochi/importers";
-import { xpForLevel } from "@inochi/core";
+import { applyLevelingPreset, levelingPresets, xpForLevel, type LevelingPresetName } from "@inochi/core";
 import { getOrCreateGuild } from "@inochi/database";
 import { INOCHI_NAVY } from "./theme";
 
 type ImportComponentInteraction = ButtonInteraction | AnySelectMenuInteraction;
 type Session = typeof importSessions.$inferSelect;
 const MAX_IMPORT_RECORDS = 100_000;
+const PRESET_SETTINGS = ["gain", "curve", "multipliers"] as const;
+const xpModeLabels = { replace: "Replace matching XP", missing: "Only missing members", greater: "Keep greater XP" } as const;
 
 async function currentGuildMemberIds(guild: Guild) {
   const ids = new Set<string>();
@@ -49,6 +52,22 @@ async function currentGuildMemberIds(guild: Guild) {
   return ids;
 }
 
+async function synchronizeImportedRoles(interaction: ImportComponentInteraction, userIds: string[]) {
+  const { syncMember } = await import("./commands/handler");
+  let synchronized = 0;
+  let failed = 0;
+  for (let offset = 0; offset < userIds.length; offset += 5) {
+    await Promise.all(userIds.slice(offset, offset + 5).map(async (userId) => {
+      const member = await interaction.guild!.members.fetch(userId).catch(() => null);
+      if (!member) { failed += 1; return; }
+      const result = await syncMember(member).catch(() => null);
+      if (result) synchronized += 1;
+      else failed += 1;
+    }));
+  }
+  await interaction.followUp({ content: `Reward-role synchronization finished for **${synchronized.toLocaleString()}** members${failed ? `; **${failed.toLocaleString()}** could not be synchronized` : ""}.`, ephemeral: true }).catch(() => undefined);
+}
+
 async function insertEntries(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], sessionId: string, records: ImportRecord[]) {
   const deduplicated = [...new Map(records.map((record) => [record.userId, record])).values()].slice(0, MAX_IMPORT_RECORDS);
   for (let offset = 0; offset < deduplicated.length; offset += 500) {
@@ -60,6 +79,19 @@ async function insertEntries(tx: Parameters<Parameters<typeof db.transaction>[0]
     });
   }
   return deduplicated.length;
+}
+
+function sourcePreset(source: ImportProviderId) {
+  return importProviders[source].knownPreset as LevelingPresetName | undefined;
+}
+
+function expectedPageState(source: ImportProviderId, capturedPages: number[], totalPages?: number) {
+  const first = source === "mee6" ? 0 : 1;
+  const unique = [...new Set(capturedPages)].sort((a, b) => a - b);
+  const count = totalPages && totalPages > 0 ? totalPages : undefined;
+  const last = count ? first + count - 1 : unique.at(-1);
+  const complete = count !== undefined ? Array.from({ length: count }, (_, index) => first + index).every((page) => unique.includes(page)) : undefined;
+  return { count, first, last, complete };
 }
 
 async function createSession(input: {
@@ -117,6 +149,15 @@ function panel(options: { source?: ImportProviderId; session?: Session; details?
   );
   if (!session && selected && customBotId) buttons.addComponents(new ButtonBuilder().setCustomId(`import:startcustom:${selected}:${customBotId}`).setLabel("Confirm custom bot").setStyle(ButtonStyle.Danger));
   container.addActionRowComponents(buttons);
+  if (session?.status === "review") {
+    const preset = selected ? sourcePreset(selected) : undefined;
+    const presetSelected = PRESET_SETTINGS.every((key) => session.selectedSettings.includes(key));
+    const reviewControls = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`import:mode:${session.id}:${session.xpApplyMode}`).setLabel(xpModeLabels[session.xpApplyMode]).setStyle(ButtonStyle.Secondary),
+    );
+    if (preset) reviewControls.addComponents(new ButtonBuilder().setCustomId(`import:preset:${session.id}:${presetSelected ? "on" : "off"}`).setLabel(`${levelingPresets[preset].label} preset: ${presetSelected ? "On" : "Off"}`).setStyle(presetSelected ? ButtonStyle.Success : ButtonStyle.Secondary));
+    container.addActionRowComponents(reviewControls);
+  }
   return container;
 }
 
@@ -150,32 +191,40 @@ async function knownProviderBot(interaction: ImportComponentInteraction, source:
 
 async function beginImport(interaction: ImportComponentInteraction, source: ImportProviderId, sourceBotId: string) {
   const provider = importProviders[source];
-  let strategy: ImportStrategy = "message";
-  let records: ImportRecord[] = [];
-  let warnings: string[] = [];
-  let pages: number[] = [];
+  const expiresAt = new Date(Date.now() + 30 * 60_000);
+  let session = await createSession({
+    guildId: interaction.guildId!, channelId: interaction.channelId, createdBy: interaction.user.id, source, strategy: provider.fetchPublic ? "web" : "message", sourceBotId,
+    status: "collecting", expiresAt,
+  });
+  let details = `${provider.messageInstructions}\nOnly public, non-ephemeral messages from <@${sourceBotId}> in this channel will be captured.`;
   if (provider.fetchPublic) {
     await interaction.editReply({ components: [panel({ source, busy: true, details: `Found <@${sourceBotId}>. Checking ${provider.label}'s public leaderboard...` })] });
     try {
       const result = await provider.fetchPublic(interaction.guildId!);
       if (result.records.length) {
-        strategy = "web";
-        records = result.records;
-        warnings = result.warnings;
-        pages = Array.from({ length: result.pages }, (_, index) => index + (source === "mee6" ? 0 : 1));
-      } else warnings.push("The public leaderboard returned no records; switched to message capture.");
+        const pages = Array.from({ length: result.pages }, (_, index) => index + (source === "mee6" ? 0 : 1));
+        session = await db.transaction(async (tx) => {
+          await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${session.id}))`);
+          await insertEntries(tx, session.id, result.records);
+          const pageState = { ...expectedPageState(source, pages, result.expectedPages), complete: result.complete };
+          const [updated] = await tx.update(importSessions).set({ strategy: "web", capturedPages: pages, warnings: result.warnings, expectedPages: pageState, updatedAt: new Date() }).where(and(eq(importSessions.id, session.id), eq(importSessions.status, "collecting"))).returning();
+          if (!updated) throw new Error("Import session changed while loading the public leaderboard");
+          return updated;
+        });
+        details = `Loaded **${result.records.length.toLocaleString()}** records from ${provider.label}'s public leaderboard.${result.warnings.length ? `\n${result.warnings.map((warning) => `- ${warning}`).join("\n")}` : ""}`;
+      } else {
+        const warnings = [...result.warnings, "The public leaderboard returned no records; switched to message capture."];
+        const [updated] = await db.update(importSessions).set({ strategy: "message", warnings, updatedAt: new Date() }).where(eq(importSessions.id, session.id)).returning();
+        if (updated) session = updated;
+        details += `\n${warnings.map((warning) => `- ${warning}`).join("\n")}`;
+      }
     } catch (error) {
-      warnings.push(`${error instanceof Error ? error.message : "Public leaderboard unavailable"}; switched to message capture.`);
+      const warning = `${error instanceof Error ? error.message : "Public leaderboard unavailable"}; switched to message capture.`;
+      const [updated] = await db.update(importSessions).set({ strategy: "message", warnings: [warning], lastError: error instanceof Error ? error.message : String(error), updatedAt: new Date() }).where(eq(importSessions.id, session.id)).returning();
+      if (updated) session = updated;
+      details += `\n- ${warning}`;
     }
   }
-  const expiresAt = new Date(Date.now() + 30 * 60_000);
-  const session = await createSession({
-    guildId: interaction.guildId!, channelId: interaction.channelId, createdBy: interaction.user.id, source, strategy, sourceBotId,
-    status: strategy === "web" ? "review" : "collecting", expiresAt, capturedPages: pages, warnings,
-  }, records);
-  const details = strategy === "web"
-    ? `Loaded **${records.length.toLocaleString()}** records from ${provider.label}'s public leaderboard.${warnings.length ? `\n${warnings.map((warning) => `- ${warning}`).join("\n")}` : ""}`
-    : `${provider.messageInstructions}\nOnly public, non-ephemeral messages from <@${sourceBotId}> in this channel will be captured.${warnings.length ? `\n${warnings.map((warning) => `- ${warning}`).join("\n")}` : ""}`;
   await interaction.editReply({ components: [panel({ session, details })] });
 }
 
@@ -184,6 +233,7 @@ export async function handleImportComponent(interaction: ImportComponentInteract
   if (!interaction.inGuild() || !interaction.guild || !interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) throw new Error("Manage Server permission is required");
   const [, action, id, extra] = interaction.customId.split(":");
   await interaction.deferUpdate();
+  try {
   if (action === "source" && interaction.isStringSelectMenu()) {
     const source = interaction.values[0];
     if (!source || !isImportProviderId(source)) throw new Error("Choose a supported import source");
@@ -217,6 +267,22 @@ export async function handleImportComponent(interaction: ImportComponentInteract
   }
   if (!id) throw new Error("Invalid import control");
   const session = await sessionFor(interaction, id);
+  if (action === "preset") {
+    const preset = isImportProviderId(session.source) ? sourcePreset(session.source) : undefined;
+    if (!preset || !session.settingsProposal) throw new Error("This source does not have a verified settings preset");
+    const selectedSettings = extra === "on" ? [] : [...PRESET_SETTINGS];
+    const prepared = await prepareImportSession(db, { sessionId: session.id, selectedSettings });
+    await interaction.editReply({ components: [panel({ session: prepared, details: `${levelingPresets[preset].label} progression settings will ${selectedSettings.length ? "be applied with" : "not be changed by"} this import.` })] });
+    return true;
+  }
+  if (action === "mode") {
+    const modes = ["replace", "missing", "greater"] as const;
+    const current = modes.indexOf(session.xpApplyMode);
+    const xpApplyMode = modes[(current + 1) % modes.length]!;
+    const prepared = await prepareImportSession(db, { sessionId: session.id, xpApplyMode });
+    await interaction.editReply({ components: [panel({ session: prepared, details: `XP behavior: **${xpModeLabels[xpApplyMode]}**.` })] });
+    return true;
+  }
   if (action === "stop") {
     const updatedAt = new Date();
     const stopped = await db.transaction(async (tx) => {
@@ -230,24 +296,29 @@ export async function handleImportComponent(interaction: ImportComponentInteract
   }
   const [total] = await db.select({ value: count() }).from(importEntries).where(eq(importEntries.sessionId, session.id));
   if (action === "review") {
-    const updatedAt = new Date();
-    const review = await db.transaction(async (tx) => {
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${session.id}))`);
-      const [freshTotal] = await tx.select({ value: count() }).from(importEntries).where(eq(importEntries.sessionId, session.id));
-      const [freshApproximate] = await tx.select({ value: count() }).from(importEntries).where(and(eq(importEntries.sessionId, session.id), eq(importEntries.exact, false)));
-      if (!freshTotal?.value) throw new Error(session.recognizedMessages > 0 ? "Leaderboard messages were recognized, but no importable member IDs and XP values were found" : "No leaderboard records have been captured yet");
-      const [reviewed] = await tx.update(importSessions).set({ status: "review", updatedAt }).where(and(eq(importSessions.id, session.id), sql`${importSessions.status} in ('collecting', 'review')`, gt(importSessions.expiresAt, updatedAt))).returning();
-      if (!reviewed) throw new Error("This import session is no longer active");
-      return { reviewed, total: freshTotal.value, approximate: freshApproximate?.value ?? 0 };
+    const preset = isImportProviderId(session.source) ? sourcePreset(session.source) : undefined;
+    const expectedPages = session.expectedPages ?? expectedPageState(session.source as ImportProviderId, session.capturedPages);
+    const reviewed = await prepareImportSession(db, {
+      sessionId: session.id,
+      formatVersion: CURRENT_IMPORT_FORMAT_VERSION,
+      preset: preset ?? null,
+      selectedSettings: preset ? [...PRESET_SETTINGS] : [],
+      xpApplyMode: session.xpApplyMode,
+      expectedPages,
+      allowApproximate: Boolean(preset),
     });
-    const { reviewed } = review;
+    const { records, approximate } = reviewed.previewSummary;
     const warningText = reviewed.warnings.length ? `\n${reviewed.warnings.map((warning) => `- ${warning}`).join("\n")}` : "";
-    await interaction.editReply({ components: [panel({ session: reviewed, details: `Captured **${review.total.toLocaleString()}** members across **${reviewed.capturedPages.length}** detected pages. **${review.approximate.toLocaleString()}** entries are level-only estimates.${warningText}` })] });
+    const pageWarning = reviewed.expectedPages?.complete === false ? "\n- **Warning:** Not every advertised leaderboard page has been captured." : "";
+    const presetText = preset ? `\n**Settings:** ${levelingPresets[preset].label} preset preselected (${levelingPresets[preset].description}).` : "\n**Settings:** No verified provider preset; existing settings will remain unchanged.";
+    await interaction.editReply({ components: [panel({ session: reviewed, details: `Captured **${records.toLocaleString()}** members across **${reviewed.capturedPages.length}** detected pages. **${approximate.toLocaleString()}** entries are level-only estimates.${presetText}\n**XP behavior:** ${xpModeLabels[reviewed.xpApplyMode]}.${pageWarning}${warningText}` })] });
     return true;
   }
   if (action === "apply" && !interaction.customId.endsWith(":confirm")) {
     if (session.status !== "review" || !total?.value) throw new Error("Review a non-empty import before applying it");
-    await interaction.editReply({ components: [panel({ session, details: `This replaces XP for **${total.value.toLocaleString()}** records. Select **Confirm apply** to continue.`, confirm: true })] });
+    const preset = isImportProviderId(session.source) ? sourcePreset(session.source) : undefined;
+    const appliesPreset = preset && PRESET_SETTINGS.every((key) => session.selectedSettings.includes(key));
+    await interaction.editReply({ components: [panel({ session, details: `This will use **${xpModeLabels[session.xpApplyMode]}** for up to **${total.value.toLocaleString()}** records${appliesPreset ? ` and apply the **${levelingPresets[preset].label}** progression preset` : " without changing progression settings"}. A pre-import safety backup will be created. Select **Confirm apply** to continue.`, confirm: true })] });
     return true;
   }
   if (action === "apply") {
@@ -255,12 +326,23 @@ export async function handleImportComponent(interaction: ImportComponentInteract
     const guild = await getOrCreateGuild(db, interaction.guildId, interaction.guild.name);
     const excludedBots = new Set([interaction.client.user.id, session.sourceBotId, ...Object.values(importProviders).flatMap((provider) => [...provider.botUserIds])].filter(Boolean));
     const guildMemberIds = await currentGuildMemberIds(interaction.guild);
-    const imported = await applyImport(db, { sessionId: session.id, actorId: interaction.user.id, approximateXp: (level) => xpForLevel(level, guild.settings), includeUser: (userId) => guildMemberIds.has(userId) && !excludedBots.has(userId) });
-    await markPersistentLeaderboardDirty(db, interaction.guildId);
-    await interaction.editReply({ components: [panel({ session: { ...session, status: "completed", completedAt: new Date(), updatedAt: new Date() }, details: `Applied **${imported.toLocaleString()}** member records.` })] });
+    const preset = isImportProviderId(session.source) ? sourcePreset(session.source) : undefined;
+    const conversionSettings = preset ? applyLevelingPreset(guild.settings, preset) : guild.settings;
+    const allowedUserIds = new Set([...guildMemberIds].filter((userId) => !excludedBots.has(userId)));
+    const result = await applyImport(db, { sessionId: session.id, actorId: interaction.user.id, approximateXp: (level) => xpForLevel(level, conversionSettings), includeUser: (userId) => allowedUserIds.has(userId) });
+    const completedSession = { ...session, status: "completed" as const, applyResult: { ...result }, completedAt: new Date(result.completedAt), updatedAt: new Date(result.completedAt) };
+    await interaction.editReply({ components: [panel({ session: completedSession, details: `Applied XP to **${result.applied.toLocaleString()}** members. **${result.skipped.toLocaleString()}** were unchanged and **${result.excluded.toLocaleString()}** were excluded.${result.settingsApplied.length ? ` Applied progression settings: ${result.settingsApplied.join(", ")}.` : " Existing settings were preserved."}\nSafety backup: \`${result.backupId}\`.` })] });
+    const roleSyncIds = result.settingsApplied.length ? [...allowedUserIds] : result.changedUserIds;
+    if (!result.idempotent && roleSyncIds.length) void synchronizeImportedRoles(interaction, roleSyncIds).catch(console.error);
     return true;
   }
-  throw new Error("Unknown import action");
+    throw new Error("Unknown import action");
+  } catch (error) {
+    if (id && /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(id)) {
+      await db.update(importSessions).set({ lastError: (error instanceof Error ? error.message : String(error)).slice(0, 1_000), updatedAt: new Date() }).where(eq(importSessions.id, id)).catch(() => undefined);
+    }
+    throw error;
+  }
 }
 
 export function snapshotForImportMessage(message: Message): LeaderboardMessageSnapshot {
@@ -270,7 +352,7 @@ export function snapshotForImportMessage(message: Message): LeaderboardMessageSn
       author: embed.author?.name, title: embed.title ?? undefined, description: embed.description ?? undefined,
       fields: embed.fields.map((field) => ({ name: field.name, value: field.value })), footer: embed.footer?.text, url: embed.url ?? undefined,
     })),
-    components: message.components.flatMap((row) => "components" in row ? row.components.map((component) => "label" in component && component.label ? component.label : "") : []).filter(Boolean),
+    components: message.components.map((row) => row.toJSON()),
     attachments: message.attachments.map((attachment) => ({ name: attachment.name, contentType: attachment.contentType ?? undefined })),
   };
 }
@@ -278,25 +360,42 @@ export function snapshotForImportMessage(message: Message): LeaderboardMessageSn
 export async function captureImportMessage(message: Message) {
   if (!message.guild || !message.author.bot) return;
   const session = await db.query.importSessions.findFirst({
-    where: and(eq(importSessions.guildId, message.guild.id), eq(importSessions.channelId, message.channel.id), eq(importSessions.sourceBotId, message.author.id), eq(importSessions.status, "collecting"), gt(importSessions.expiresAt, new Date())),
+    where: and(eq(importSessions.guildId, message.guild.id), eq(importSessions.channelId, message.channel.id), eq(importSessions.sourceBotId, message.author.id), eq(importSessions.strategy, "message"), eq(importSessions.status, "collecting"), gt(importSessions.expiresAt, new Date())),
   });
   if (!session || !isImportProviderId(session.source)) return;
+  const source = session.source;
   const snapshot = snapshotForImportMessage(message);
-  const result = importProviders[session.source].parseMessage(snapshot);
-  if (!result.recognized && !result.records.length) return;
-  await db.transaction(async (tx) => {
+  const result = importProviders[source].parseMessage(snapshot);
+  if (!result.recognized && !result.records.length) {
+    const prior = await db.query.importCapturedMessages.findFirst({ where: and(eq(importCapturedMessages.sessionId, session.id), eq(importCapturedMessages.messageId, message.id)) });
+    if (!prior) return;
+  }
+  const changed = await db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${session.id}))`);
     const current = await tx.query.importSessions.findFirst({ where: and(eq(importSessions.id, session.id), eq(importSessions.status, "collecting"), gt(importSessions.expiresAt, new Date())) });
-    if (!current) return;
-    const [existing] = await tx.select({ value: count() }).from(importEntries).where(eq(importEntries.sessionId, session.id));
-    const remaining = Math.max(0, MAX_IMPORT_RECORDS - (existing?.value ?? 0));
-    await insertEntries(tx, session.id, result.records.slice(0, remaining));
-    const pages = result.page === undefined ? current.capturedPages : [...new Set([...current.capturedPages, result.page])].sort((a, b) => a - b);
+    if (!current) return false;
+    const serialized = JSON.stringify(snapshot);
+    const contentHash = createHash("sha256").update(serialized).digest("hex");
+    const priorCapture = await tx.query.importCapturedMessages.findFirst({ where: and(eq(importCapturedMessages.sessionId, session.id), eq(importCapturedMessages.messageId, message.id)) });
+    if (priorCapture?.contentHash === contentHash) return false;
     const warnings = [...new Set([...current.warnings, ...result.warnings])].slice(-25);
     const rawSnapshot = [...current.rawSnapshot, { messageId: message.id, authorId: message.author.id, snapshot, capturedAt: new Date().toISOString() }].slice(-100);
-    await tx.update(importSessions).set({ sourceMessageId: message.id, rawSnapshot, capturedPages: pages, warnings, recognizedMessages: current.recognizedMessages + (result.recognized ? 1 : 0), updatedAt: new Date() }).where(and(eq(importSessions.id, session.id), eq(importSessions.status, "collecting")));
+    const now = new Date();
+    await tx.insert(importCapturedMessages).values({ sessionId: session.id, messageId: message.id, snapshot, records: result.records, sourcePage: result.page, contentHash, capturedAt: now, updatedAt: now }).onConflictDoUpdate({
+      target: [importCapturedMessages.sessionId, importCapturedMessages.messageId],
+      set: { snapshot, records: result.records, sourcePage: result.page, contentHash, revision: sql`${importCapturedMessages.revision} + 1`, capturedAt: now, updatedAt: now },
+    });
+    const captures = await tx.select({ records: importCapturedMessages.records, sourcePage: importCapturedMessages.sourcePage }).from(importCapturedMessages).where(eq(importCapturedMessages.sessionId, session.id));
+    const aggregate = [...new Map(captures.flatMap((capture) => capture.records).map((record) => [record.userId, record])).values()].slice(0, MAX_IMPORT_RECORDS);
+    const pages = [...new Set(captures.flatMap((capture) => capture.sourcePage === null ? [] : [capture.sourcePage]))].sort((a, b) => a - b);
+    const totalPages = Math.max(result.totalPages ?? 0, current.expectedPages?.count ?? 0) || undefined;
+    const expectedPages = expectedPageState(source, pages, totalPages);
+    await tx.delete(importEntries).where(eq(importEntries.sessionId, session.id));
+    await insertEntries(tx, session.id, aggregate as ImportRecord[]);
+    await tx.update(importSessions).set({ sourceMessageId: message.id, rawSnapshot, capturedPages: pages, expectedPages, warnings, recognizedMessages: current.recognizedMessages + (result.recognized ? 1 : 0), updatedAt: now }).where(and(eq(importSessions.id, session.id), eq(importSessions.status, "collecting")));
+    return true;
   });
-  if (result.recognized && !result.records.length && session.recognizedMessages === 0 && message.channel.isSendable()) {
-    await message.channel.send({ content: `I recognized ${importProviders[session.source].label}'s leaderboard, but it did not expose Discord member IDs with XP or level values. Try another public leaderboard format or an official export.`, allowedMentions: { parse: [] } }).catch(() => undefined);
+  if (changed && result.recognized && !result.records.length && session.recognizedMessages === 0 && message.channel.isSendable()) {
+    await message.channel.send({ content: `I recognized ${importProviders[source].label}'s leaderboard, but it did not expose Discord member IDs with XP or level values. Try another public leaderboard format or an official export.`, allowedMentions: { parse: [] } }).catch(() => undefined);
   }
 }

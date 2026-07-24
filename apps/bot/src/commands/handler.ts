@@ -49,7 +49,7 @@ async function settingsFor(interaction: Interaction) {
 }
 
 async function replyError(interaction: Interaction, error: unknown) {
-  if (!interaction.isRepliable()) return;
+  if (!interaction.isRepliable()) return null;
   const known = error instanceof Error && error.constructor === Error && !("code" in error) && !("cause" in error);
   const reference = randomUUID().slice(0, 8).toUpperCase();
   const content = known ? `**Error:** ${error.message}` : `Something went wrong. Reference \`${reference}\`.`;
@@ -61,6 +61,7 @@ async function replyError(interaction: Interaction, error: unknown) {
   } catch (replyFailure) {
     console.error("interaction_error_response_failure", { reference, interactionId: interaction.id, replyFailure });
   }
+  return known ? null : reference;
 }
 
 type RankInteraction = ChatInputCommandInteraction | UserContextMenuCommandInteraction;
@@ -133,7 +134,7 @@ async function updateSettings(interaction: ChatInputCommandInteraction, updater:
   const guild = await settingsFor(interaction);
   updater(guild.settings);
   const settings = parseGuildSettings(guild.settings);
-  await db.update(guilds).set({ settings, updatedAt: new Date() }).where(eq(guilds.id, interaction.guildId!));
+  await db.update(guilds).set({ settings, settingsRevision: sql`${guilds.settingsRevision} + 1`, updatedAt: new Date() }).where(eq(guilds.id, interaction.guildId!));
   await db.insert(auditLogs).values({ guildId: interaction.guildId!, actorId: interaction.user.id, action });
   return settings;
 }
@@ -447,8 +448,8 @@ export async function handleInteraction(interaction: Interaction) {
     }
   } catch (error) {
     const action = interaction.isCommand() ? interaction.commandName : interaction.isMessageComponent() || interaction.isModalSubmit() ? interaction.customId : `type:${interaction.type}`;
-    if (interaction.guildId) void sendGuildLog(interaction.client, interaction.guildId, "errors", "Interaction error", `\`${action}\` failed for <@${interaction.user.id}>.`).catch(console.error);
-    await replyError(interaction, error);
+    const reference = await replyError(interaction, error);
+    if (interaction.guildId) void sendGuildLog(interaction.client, interaction.guildId, "errors", "Interaction error", `\`${action}\` failed for <@${interaction.user.id}>.${reference ? ` Reference \`${reference}\`.` : ""}`).catch(console.error);
   }
 }
 
