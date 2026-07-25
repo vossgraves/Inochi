@@ -31,7 +31,6 @@ import {
   xpPeriods,
   markPersistentLeaderboardDirty,
   markPersistentLeaderboardsForUserDirty,
-  retryPersistentLeaderboard,
 } from "@inochi/database";
 import { renderRankCard } from "@inochi/rank-card";
 import { startGame } from "../games";
@@ -41,7 +40,7 @@ import { handleImportComponent, showImportPanel } from "../imports";
 import { handleCoinflipComponent, startCoinflip } from "../coinflip";
 import { INOCHI_NAVY, WARNING_AMBER } from "../theme";
 import { commandDetailComponents, commandOverviewComponents } from "./help";
-import { handleLeaderboardComponent, renderLeaderboard } from "../leaderboard";
+import { handleLeaderboardComponent, renderLeaderboard, sendOrUpdatePersistentLeaderboard } from "../leaderboard";
 
 async function settingsFor(interaction: Interaction) {
   if (!interaction.guild) throw new Error("This command only works in a server");
@@ -191,9 +190,11 @@ export async function handleInteraction(interaction: Interaction) {
         return interaction.reply({ content: `Channel: <#${status.channelId}>\nMessage: ${status.messageId ? `[open message](https://discord.com/channels/${interaction.guildId}/${status.channelId}/${status.messageId})` : "pending"}\nState: **${status.enabled ? status.dirty ? "waiting for refresh" : "active" : "disabling"}**${status.lastError ? `\nLast error: ${status.lastError}` : ""}`, ephemeral: true });
       }
       if (subcommand === "refresh") {
-        const status = await retryPersistentLeaderboard(db, interaction.guildId!);
-        if (!status) throw new Error("Configure the persistent leaderboard first");
-        return interaction.reply({ content: "Persistent leaderboard refresh queued.", ephemeral: true });
+        const status = await getPersistentLeaderboardStatus(db, interaction.guildId!);
+        if (!status?.enabled || !status.channelId) throw new Error("Configure the persistent leaderboard first");
+        await interaction.deferReply({ ephemeral: true });
+        const message = await sendOrUpdatePersistentLeaderboard(interaction.client, interaction.guild!, guild.settings);
+        return interaction.editReply({ content: `Leaderboard refreshed: [open message](https://discord.com/channels/${interaction.guildId}/${message.channelId}/${message.id})` });
       }
       if (subcommand === "disable") {
         await updateSettings(interaction, (settings) => { settings.leaderboard.persistent.enabled = false; }, "settings.persistent-leaderboard");
@@ -208,7 +209,9 @@ export async function handleInteraction(interaction: Interaction) {
         settings.leaderboard.persistent = { enabled: true, channelId: channel.id, rows };
       }, "settings.persistent-leaderboard");
       await configurePersistentLeaderboard(db, { guildId: interaction.guildId!, channelId: channel.id });
-      return interaction.reply({ content: `Persistent leaderboard queued for ${channel} with **${rows}** rows.`, ephemeral: true });
+      await interaction.deferReply({ ephemeral: true });
+      const message = await sendOrUpdatePersistentLeaderboard(interaction.client, interaction.guild!, guild.settings);
+      return interaction.editReply({ content: `Persistent leaderboard posted in ${channel} with **${rows}** rows: [open message](https://discord.com/channels/${interaction.guildId}/${message.channelId}/${message.id})` });
     }
     if (command === "diagnose") {
       const guild = await settingsFor(interaction);

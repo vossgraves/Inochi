@@ -106,8 +106,9 @@ export async function configurePersistentLeaderboard(db: Pick<Database, "insert"
     .onConflictDoUpdate({
       target: persistentLeaderboards.guildId,
       set: {
-        channelId: sql`case when ${persistentLeaderboards.channelId} = ${input.channelId} or ${persistentLeaderboards.messageId} is null then ${input.channelId} else ${persistentLeaderboards.channelId} end`,
-        enabled: sql`${persistentLeaderboards.channelId} = ${input.channelId} or ${persistentLeaderboards.messageId} is null`,
+        channelId: input.channelId,
+        enabled: true,
+        messageId: sql`case when ${persistentLeaderboards.channelId} = ${input.channelId} then ${persistentLeaderboards.messageId} else null end`,
         contentHash: sql`case when ${persistentLeaderboards.channelId} = ${input.channelId} then ${persistentLeaderboards.contentHash} else null end`,
         dirty: true,
         dueAt,
@@ -207,6 +208,23 @@ export async function completePersistentLeaderboard(db: Database, claim: Persist
     lastFailedAt: null,
     updatedAt: renderedAt,
   }).where(and(eq(persistentLeaderboards.guildId, claim.guildId), eq(persistentLeaderboards.leaseUntil, claim.leaseUntil))).returning();
+  return row ?? null;
+}
+
+export async function updatePersistentLeaderboardMessage(db: Database, guildId: string, input: { channelId: string; messageId: string; contentHash: string; renderedAt?: Date }) {
+  const renderedAt = input.renderedAt ?? new Date();
+  const [row] = await db.update(persistentLeaderboards).set({
+    channelId: input.channelId,
+    messageId: input.messageId,
+    contentHash: input.contentHash,
+    dirty: false,
+    leaseUntil: null,
+    lastRenderedAt: renderedAt,
+    failureCount: 0,
+    lastError: null,
+    lastFailedAt: null,
+    updatedAt: renderedAt,
+  }).where(eq(persistentLeaderboards.guildId, guildId)).returning();
   return row ?? null;
 }
 

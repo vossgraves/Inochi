@@ -10,8 +10,10 @@ import {
   failPersistentLeaderboard,
   getLeaderboard,
   getOrCreateGuild,
+  getPersistentLeaderboardStatus,
   inArray,
   rankProfiles,
+  updatePersistentLeaderboardMessage,
   type PersistentLeaderboardClaim,
 } from "@inochi/database";
 import { ButtonStyle, DiscordAPIError, MessageFlags, type ButtonInteraction, type Client, type Guild, type MessageCreateOptions } from "discord.js";
@@ -79,6 +81,25 @@ export async function persistentLeaderboardPayload(guild: Guild, settings: Guild
   });
 }
 
+export async function sendOrUpdatePersistentLeaderboard(client: Client, guild: Guild, settings: GuildSettings) {
+  const intent = settings.leaderboard.persistent;
+  if (!settings.leaderboard.enabled || !intent.enabled || !intent.channelId) throw new Error("The persistent leaderboard is not enabled");
+  const channel = await client.channels.fetch(intent.channelId);
+  if (!channel?.isTextBased() || channel.isDMBased() || !("send" in channel) || !("messages" in channel) || !("guildId" in channel) || channel.guildId !== guild.id) {
+    throw new Error("Persistent leaderboard channel is not writable in this server");
+  }
+  const rendered = await persistentLeaderboardPayload(guild, settings);
+  const status = await getPersistentLeaderboardStatus(db, guild.id);
+  let message = status?.messageId ? await channel.messages.fetch(status.messageId).catch((error) => {
+    if (error instanceof DiscordAPIError && error.code === 10008) return null;
+    throw error;
+  }) : null;
+  if (!message) message = await channel.send(rendered.payload);
+  else message = await message.edit(rendered.payload);
+  await updatePersistentLeaderboardMessage(db, guild.id, { channelId: channel.id, messageId: message.id, contentHash: rendered.contentHash });
+  return message;
+}
+
 async function renderClaim(client: Client, claim: PersistentLeaderboardClaim) {
   const guild = client.guilds.cache.get(claim.guildId) ?? await client.guilds.fetch(claim.guildId);
   const guildRow = await getOrCreateGuild(db, guild.id, guild.name);
@@ -137,7 +158,7 @@ export function schedulePersistentLeaderboards(client: Client) {
     }
   };
   void run().catch(console.error);
-  const timer = setInterval(() => void run().catch(console.error), 5_000);
+  const timer = setInterval(() => void run().catch(console.error), 600_000);
   timer.unref();
   return () => clearInterval(timer);
 }
