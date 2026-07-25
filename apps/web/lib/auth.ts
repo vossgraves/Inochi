@@ -1,8 +1,12 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
-import { and, db, eq, gt, oauthSessions } from "@inochi/database";
+import { db, eq, oauthSessions } from "@inochi/database";
 
 const sessionCookie = "inochi_session";
+const DISCORD_API = "https://discord.com/api/v10";
+const DISCORD_TIMEOUT_MS = 10_000;
+const REFRESH_BUFFER_MS = 5 * 60 * 1000;
+const GUILD_CACHE_MS = 5 * 60 * 1000;
 
 function secretKey() {
   const secret = process.env.SESSION_SECRET;
@@ -29,6 +33,49 @@ export function hashToken(value: string) {
   return createHash("sha256").update(value).digest("hex");
 }
 
+function discordCredentials() {
+  const clientId = process.env.DISCORD_CLIENT_ID;
+  const clientSecret = process.env.DISCORD_CLIENT_SECRET;
+  if (!clientId || !clientSecret) throw new Error("Discord credentials are not configured");
+  return { clientId, clientSecret };
+}
+
+async function discordFetch(url: string, accessToken: string): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DISCORD_TIMEOUT_MS);
+  try {
+    return await fetch(url, {
+      headers: { authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function refreshDiscordToken(refreshToken: string): Promise<{ accessToken: string; refreshToken?: string; expiresIn: number } | null> {
+  try {
+    const { clientId, clientSecret } = discordCredentials();
+    const body = new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+    });
+    const response = await fetch(`${DISCORD_API}/oauth2/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+    });
+    if (!response.ok) return null;
+    const token = await response.json() as { access_token: string; refresh_token?: string; expires_in: number };
+    return { accessToken: token.access_token, refreshToken: token.refresh_token, expiresIn: token.expires_in };
+  } catch {
+    return null;
+  }
+}
+
 export async function createSession(input: { userId: string; username: string; avatar: string | null; accessToken: string; refreshToken?: string; expiresIn: number }) {
   const token = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + input.expiresIn * 1_000);
@@ -41,11 +88,41 @@ export async function createSession(input: { userId: string; username: string; a
 }
 
 export async function getSession() {
-  const token = (await cookies()).get(sessionCookie)?.value;
+  const store = await cookies();
+  const token = store.get(sessionCookie)?.value;
   if (!token) return null;
-  const session = await db.query.oauthSessions.findFirst({ where: and(eq(oauthSessions.tokenHash, hashToken(token)), gt(oauthSessions.expiresAt, new Date())) });
+  const hashed = hashToken(token);
+  const session = await db.query.oauthSessions.findFirst({ where: eq(oauthSessions.tokenHash, hashed) });
   if (!session) return null;
-  return { ...session, accessToken: decrypt(session.accessToken) };
+
+  const now = Date.now();
+  const expiresAt = session.expiresAt.getTime();
+
+  if (expiresAt - now <= REFRESH_BUFFER_MS) {
+    if (!session.refreshToken) {
+      await db.delete(oauthSessions).where(eq(oauthSessions.tokenHash, hashed));
+      store.delete(sessionCookie);
+      return null;
+    }
+    const refreshed = await refreshDiscordToken(decrypt(session.refreshToken));
+    if (!refreshed) {
+      await db.delete(oauthSessions).where(eq(oauthSessions.tokenHash, hashed));
+      store.delete(sessionCookie);
+      return null;
+    }
+    const newExpiresAt = new Date(now + refreshed.expiresIn * 1_000);
+    const newAccessToken = encrypt(refreshed.accessToken);
+    const newRefreshToken = refreshed.refreshToken ? encrypt(refreshed.refreshToken) : session.refreshToken;
+    await db.update(oauthSessions).set({
+      accessToken: newAccessToken,
+      refreshToken: newRefreshToken,
+      expiresAt: newExpiresAt,
+    }).where(eq(oauthSessions.tokenHash, hashed));
+    store.set(sessionCookie, token, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", expires: newExpiresAt });
+    return { ...session, accessToken: refreshed.accessToken, refreshToken: refreshed.refreshToken ?? null, expiresAt: newExpiresAt };
+  }
+
+  return { ...session, accessToken: decrypt(session.accessToken), refreshToken: session.refreshToken ? decrypt(session.refreshToken) : null };
 }
 
 export async function destroySession() {
@@ -63,10 +140,21 @@ export interface DiscordGuild {
   permissions: string;
 }
 
+const guildCache = new Map<string, { guilds: DiscordGuild[]; expiresAt: number }>();
+
 export async function discordGuilds(accessToken: string): Promise<DiscordGuild[]> {
-  const response = await fetch("https://discord.com/api/v10/users/@me/guilds", { headers: { authorization: `Bearer ${accessToken}` }, cache: "no-store" });
-  if (!response.ok) throw new Error("Discord guild request failed");
-  return response.json();
+  const cacheKey = hashToken(accessToken);
+  const cached = guildCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.guilds;
+
+  const response = await discordFetch(`${DISCORD_API}/users/@me/guilds`, accessToken);
+  if (!response.ok) {
+    if (response.status === 401) throw new Error("Discord session expired");
+    throw new Error(`Discord guild request failed: ${response.status}`);
+  }
+  const guilds = await response.json() as DiscordGuild[];
+  guildCache.set(cacheKey, { guilds, expiresAt: Date.now() + GUILD_CACHE_MS });
+  return guilds;
 }
 
 export function canManageGuild(guild: DiscordGuild) {
