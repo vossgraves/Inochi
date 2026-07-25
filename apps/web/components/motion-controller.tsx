@@ -84,11 +84,21 @@ export function MotionController() {
             if (!entry.isIntersecting) continue;
             observer.unobserve(entry.target);
             const element = entry.target as HTMLElement;
+            element.dataset.revealed = "true";
             animations.push(animate(element, { opacity: [0, 1], y: [28, 0], duration: 680, ease: "out(3)", onComplete: () => element.style.removeProperty("transform") }));
           }
         }, { threshold: 0.01, rootMargin: "0px 0px -5%" });
         document.querySelectorAll<HTMLElement>("[data-reveal]").forEach((element) => observer.observe(element));
         cleanups.push(() => observer.disconnect());
+
+        const fallbackTimer = setTimeout(() => {
+          document.querySelectorAll<HTMLElement>("[data-reveal]:not([data-revealed])").forEach((element) => {
+            element.style.removeProperty("opacity");
+            element.style.removeProperty("transform");
+            element.dataset.revealed = "true";
+          });
+        }, 1200);
+        cleanups.push(() => clearTimeout(fallbackTimer));
       }).catch(() => document.documentElement.classList.remove("motion-enhanced"));
     }
 
