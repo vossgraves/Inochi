@@ -35,7 +35,7 @@ function gameSettings(settings: unknown) {
 }
 
 export async function startCoinflip(interaction: ChatInputCommandInteraction, opponent: GuildMember, wager: number, side: Side) {
-  await interaction.deferReply();
+  if (!interaction.deferred && !interaction.replied) await interaction.deferReply();
   if (!interaction.guildId || !interaction.guild) throw new Error("This command only works in a server");
   if (opponent.user.bot) throw new Error("Bots cannot accept coinflip challenges");
   if (opponent.id === interaction.user.id) throw new Error("Choose another member");

@@ -381,8 +381,15 @@ export async function handleInteraction(interaction: Interaction) {
     if (command === "import") return showImportPanel(interaction);
     if (command === "coinflip") {
       const user = interaction.options.getUser("opponent", true);
+      await interaction.deferReply(); // acknowledge before any slow work
       const opponent = await interaction.guild!.members.fetch(user.id);
-      return startCoinflip(interaction, opponent, interaction.options.getInteger("wager", true), interaction.options.getString("side", true) as "heads" | "tails");
+      await startCoinflip(
+        interaction,
+        opponent,
+        interaction.options.getInteger("wager", true),
+        interaction.options.getString("side", true) as "heads" | "tails",
+      );
+      return;
     }
     if (command === "calculate") {
       const guild = await settingsFor(interaction);

@@ -22,6 +22,7 @@ export interface LeaderboardRenderOptions {
   page?: number;
   highlightedUserId?: string;
   interactiveUserId?: string;
+  updatedAt?: Date;
 }
 
 export async function renderLeaderboard(guild: Guild, settings: GuildSettings, options: LeaderboardRenderOptions = {}) {
@@ -46,8 +47,11 @@ export async function renderLeaderboard(guild: Guild, settings: GuildSettings, o
     new ButtonBuilder().setStyle(ButtonStyle.Secondary).setCustomId(`leaderboard:${options.interactiveUserId}:${page + 1}`).setLabel("Next").setDisabled(rows.length < limit),
   );
   buttons.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(url).setLabel("Open web leaderboard"));
+  const updated = options.updatedAt
+    ? `\n### Updated <t:${Math.floor(options.updatedAt.getTime() / 1000)}:R>`
+    : "";
   const container = new ContainerBuilder().setAccentColor(INOCHI_NAVY)
-    .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${guild.name} leaderboard${page > 1 ? ` · page ${page}` : ""}\n${body}`))
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${guild.name} leaderboard${page > 1 ? ` · page ${page}` : ""}\n${body}${updated}`))
     .addActionRowComponents(buttons);
   const payload = { components: [container], flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } } satisfies MessageCreateOptions;
   const contentHash = createHash("sha256").update(JSON.stringify(container.toJSON())).digest("hex");
@@ -69,7 +73,10 @@ export async function handleLeaderboardComponent(interaction: ButtonInteraction)
 }
 
 export async function persistentLeaderboardPayload(guild: Guild, settings: GuildSettings) {
-  return renderLeaderboard(guild, settings, { rows: settings.leaderboard.persistent.rows });
+  return renderLeaderboard(guild, settings, {
+    rows: settings.leaderboard.persistent.rows,
+    updatedAt: new Date(),
+  });
 }
 
 async function renderClaim(client: Client, claim: PersistentLeaderboardClaim) {
