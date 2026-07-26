@@ -37,7 +37,7 @@ const MUTED = "#a8a199";
 const MUTED_DIM = "#8a837c";
 const HAIRLINE = "#ffffff1f";
 const HAIRLINE_FAINT = "#ffffff0d";
-const VERMILION = "#d9401f";
+const VERMILION = "#d33c1c";
 const CARD_RADIUS = 6;
 
 export interface RankCardInput {

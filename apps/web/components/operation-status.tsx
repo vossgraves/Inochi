@@ -22,7 +22,7 @@ const presentation: Record<OperationState, { icon: typeof Check; className: stri
   pending: { icon: Loader2, className: "text-muted-foreground" },
   success: { icon: Check, className: "text-success" },
   warning: { icon: AlertTriangle, className: "text-warning" },
-  error: { icon: XCircle, className: "text-destructive" },
+  error: { icon: XCircle, className: "text-destructive-text" },
 };
 
 export function OperationStatus({

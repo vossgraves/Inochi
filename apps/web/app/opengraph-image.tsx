@@ -34,7 +34,7 @@ export default function OpenGraphImage() {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              border: "4px solid #d9401f",
+              border: "4px solid #d33c1c",
               borderRadius: 8,
             }}
           >
@@ -64,7 +64,7 @@ export default function OpenGraphImage() {
             <strong style={{ marginTop: 20, fontSize: 118, lineHeight: 1, letterSpacing: -5 }}>
               Inochi
             </strong>
-            <span style={{ display: "flex", width: 120, height: 5, marginTop: 30, background: "#d9401f" }} />
+            <span style={{ display: "flex", width: 120, height: 5, marginTop: 30, background: "#d33c1c" }} />
             <span style={{ marginTop: 30, color: "#cfc9c0", fontSize: 34 }}>
               Levels your server owns.
             </span>

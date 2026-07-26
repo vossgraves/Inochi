@@ -24,7 +24,7 @@ const stateColor: Record<BrandState, string> = {
   pending: "text-muted-foreground",
   success: "text-success",
   warning: "text-warning",
-  error: "text-destructive",
+  error: "text-destructive-text",
 };
 
 // The stroke skeleton of 命. Legible as a mark down to ~16px; for display sizes

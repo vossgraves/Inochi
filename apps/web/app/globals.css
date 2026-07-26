@@ -23,10 +23,16 @@
   --popover: #221e1b;
   --popover-foreground: #f4f1ea;
 
-  /* 朱 vermilion. 4.6:1 against white, so white label text on a fill passes AA. */
-  --primary: #d9401f;
+  /*
+    朱 vermilion, split into a fill and a text value because no single red does
+    both jobs. Darkening the fill improves the white label on it but degrades it
+    as text on ink; lightening does the reverse. Measured, not guessed:
+      --primary   #d33c1c  white label on the fill  4.74:1  AA
+      --primary-text #e8512f  as text on #14110f    5.06:1  AA
+    Never use --primary as small text, and never use --primary-text as a fill.
+  */
+  --primary: #d33c1c;
   --primary-foreground: #ffffff;
-  /* Vermilion as *text* on the ink field. Safe here; see .light for why it shifts. */
   --primary-text: #e8512f;
 
   --secondary: #221e1b;
@@ -36,20 +42,23 @@
   --accent: #221e1b;
   --accent-foreground: #f4f1ea;
 
+  /* Same fill/text split. #b3261e carries white at 6.54:1 but is only 2.88:1
+     as text on ink, so text-destructive uses the lighter value. */
   --destructive: #b3261e;
   --destructive-foreground: #ffffff;
-  --success: #4f7c4a;
+  --destructive-text: #f0685e;
+  --success: #6f9c68;
   --warning: #c98a2b;
 
   --border: #2e2926;
   --border-strong: #46403b;
   --input: #2e2926;
-  --ring: #d9401f;
+  --ring: #d33c1c;
 
-  /* Giveaway state tokens. Wired to nothing yet; Phase 3 places them. */
-  --state-live: #d9401f;
+  /* Giveaway state tokens, used as text and hairlines, so all are text-safe. */
+  --state-live: #e8512f;
   --state-scheduled: #a8a199;
-  --state-drawn: #4f7c4a;
+  --state-drawn: #6f9c68;
   --state-ended: #46403b;
 }
 
@@ -61,13 +70,13 @@
   --popover: #f8f6f1;
   --popover-foreground: #14110f;
 
-  --primary: #d9401f;
-  --primary-foreground: #ffffff;
   /*
-    #d9401f as text on washi is only ~3.9:1, which fails AA. Vermilion text on
-    paper is darkened to #b8351a (~4.9:1). The fill value above is unchanged, so
-    the brand colour still reads as the same red.
+    The fill is identical in both themes so the brand red never shifts. Only the
+    text value changes: #d33c1c as text on washi is 4.20:1 and fails, so
+    vermilion text on paper darkens to #b8351a (5.23:1).
   */
+  --primary: #d33c1c;
+  --primary-foreground: #ffffff;
   --primary-text: #b8351a;
 
   --secondary: #e5e0d5;
@@ -79,6 +88,7 @@
 
   --destructive: #a3211a;
   --destructive-foreground: #ffffff;
+  --destructive-text: #a3211a;
   --success: #3f6a3a;
   --warning: #8a5d15;
 
@@ -111,6 +121,7 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive-text: var(--destructive-text);
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-border: var(--border);
@@ -195,13 +206,17 @@
   /*
     Motion budget for this identity is deliberately low: reveals and state
     changes only, transform/opacity only, and nothing that loops forever.
+
+    Scoped to .js, which layout.tsx stamps on <html> before first paint. Without
+    JavaScript the hidden state never applies at all, so a failed bundle shows
+    plain visible content instead of an empty page.
   */
-  .reveal {
+  .js .reveal {
     opacity: 0;
     transform: translateY(12px);
   }
 
-  .reveal[data-revealed="true"] {
+  .js .reveal[data-revealed="true"] {
     opacity: 1;
     transform: none;
     transition:
@@ -226,7 +241,9 @@
   /*
     Reveals must resolve to visible rather than staying at opacity 0. This is
     the regression fixed in cd83e49, where settings sections were left invisible.
+    Selector matches .js .reveal so it wins on specificity, not just order.
   */
+  .js .reveal,
   .reveal {
     opacity: 1;
     transform: none;
@@ -234,6 +251,7 @@
 }
 
 @media (forced-colors: active) {
+  .js .reveal,
   .reveal {
     opacity: 1;
     transform: none;

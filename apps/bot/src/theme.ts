@@ -11,7 +11,7 @@
   near-black background token is deliberately absent here: #14110f would be
   invisible against Discord's dark theme.
 */
-export const INOCHI_VERMILION = 0xd9401f;
+export const INOCHI_VERMILION = 0xd33c1c;
 export const INFO_MUTED = 0xa8a199;
 export const SUCCESS_MOSS = 0x4f7c4a;
 export const ERROR_RED = 0xb3261e;

@@ -45,7 +45,7 @@ export default async function Dashboard() {
       <main className="grid min-h-dvh place-items-center px-5 py-16 text-center">
         <div>
           <BrandMark state="error" className="mx-auto size-16" />
-          <span className="mt-8 block font-mono text-[0.7rem] tracking-[0.2em] text-destructive uppercase">
+          <span className="mt-8 block font-mono text-[0.7rem] tracking-[0.2em] text-destructive-text uppercase">
             Discord unavailable
           </span>
           <h1 className="mt-4 text-4xl font-bold tracking-tight sm:text-5xl">

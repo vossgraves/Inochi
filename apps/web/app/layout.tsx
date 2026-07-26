@@ -59,12 +59,20 @@ export const viewport: Viewport = {
 };
 
 /*
-  Runs before first paint. Dark is the default, so :root already holds the ink
-  values and this only ever adds .light. An explicit stored choice wins over the
-  system preference; with neither stored, the product follows the system and
-  falls back to dark.
+  Runs before first paint, and does two things.
+
+  Theme: dark is the default, so :root already holds the ink values and this
+  only ever adds .light. An explicit stored choice wins over the system
+  preference; with neither stored, the product follows the system and falls back
+  to dark.
+
+  The `js` class: scroll reveals start at opacity 0, which is only safe to apply
+  when JavaScript is actually running to undo it. Gating that on a class set
+  here means a visitor with JS disabled or a failed bundle gets fully visible
+  content rather than a blank page. The classList.add sits outside the try so a
+  blocked localStorage cannot skip it.
 */
-const themeInit = `(function(){try{var s=localStorage.getItem("inochi-theme");var t=(s==="light"||s==="dark")?s:(window.matchMedia("(prefers-color-scheme: light)").matches?"light":"dark");if(t==="light")document.documentElement.classList.add("light");}catch(e){}})();`;
+const themeInit = `(function(){document.documentElement.classList.add("js");try{var s=localStorage.getItem("inochi-theme");var t=(s==="light"||s==="dark")?s:(window.matchMedia("(prefers-color-scheme: light)").matches?"light":"dark");if(t==="light")document.documentElement.classList.add("light");}catch(e){}})();`;
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (

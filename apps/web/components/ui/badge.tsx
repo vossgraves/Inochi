@@ -21,7 +21,7 @@ const badgeVariants = cva(
         ended: "border-state-ended text-muted-foreground",
         success: "border-success/40 text-success",
         warning: "border-warning/40 text-warning",
-        destructive: "border-destructive/40 text-destructive",
+        destructive: "border-destructive/40 text-destructive-text",
       },
     },
     defaultVariants: { variant: "outline" },

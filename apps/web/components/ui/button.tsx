@@ -7,9 +7,10 @@ import { cn } from "@/lib/utils";
   Sharp corners (radius 2px), no gradient, no glow. The primary fill is the one
   vermilion in the product; every other variant is a hairline or nothing.
 
-  Contrast: --primary-foreground is white on the #d9401f fill (~4.6:1, AA).
-  Ghost and outline labels use --foreground, never --primary-text, so nothing
-  depends on the vermilion being legible as small text.
+  Contrast: --primary-foreground is white on the #d33c1c fill, measured at
+  4.74:1, so the label clears AA. Ghost and outline labels use --foreground, and
+  only the `link` variant uses --primary-text, which is the text-safe vermilion.
+  Never swap --primary in as a text colour here; it fails AA on both fields.
 */
 const buttonVariants = cva(
   "inline-flex shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-[color,background-color,border-color,transform] duration-160 ease-ink outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 active:translate-y-px [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:shrink-0",
