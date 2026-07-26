@@ -4,7 +4,8 @@ import { db, eq, oauthSessions } from "@inochi/database";
 
 const sessionCookie = "inochi_session";
 const DISCORD_API = "https://discord.com/api/v10";
-const DISCORD_TIMEOUT_MS = 10_000;
+// 10s was tight enough that a slow Discord response looked like a hard failure.
+const DISCORD_TIMEOUT_MS = 15_000;
 const REFRESH_BUFFER_MS = 5 * 60 * 1000;
 const GUILD_CACHE_MS = 5 * 60 * 1000;
 
@@ -140,21 +141,106 @@ export interface DiscordGuild {
   permissions: string;
 }
 
-const guildCache = new Map<string, { guilds: DiscordGuild[]; expiresAt: number }>();
+/*
+  Why the guild fetch fails matters, because each cause needs a different
+  action from the user: re-authenticate, wait, or retry. The old code threw
+  bare Errors and the dashboard caught them with `} catch {`, discarding the
+  object, so every failure became the same dead end with nothing in the logs.
+*/
+export type GuildFetchReason = "expired" | "rate-limited" | "timeout" | "upstream";
+
+export class GuildFetchError extends Error {
+  constructor(
+    readonly reason: GuildFetchReason,
+    readonly status?: number,
+    readonly retryAfterMs?: number,
+  ) {
+    super(`discord_guilds_${reason}${status ? `_${status}` : ""}`);
+    this.name = "GuildFetchError";
+  }
+}
+
+const GUILD_CACHE_MAX = 500;
+const FAILURE_CACHE_MS = 15_000;
+
+type GuildCacheEntry =
+  | { ok: true; guilds: DiscordGuild[]; expiresAt: number }
+  | { ok: false; error: GuildFetchError; expiresAt: number };
+
+const guildCache = new Map<string, GuildCacheEntry>();
+
+// The old cache never evicted, so it grew one entry per access token forever.
+function rememberGuilds(key: string, entry: GuildCacheEntry) {
+  const now = Date.now();
+  for (const [candidate, value] of guildCache) if (value.expiresAt <= now) guildCache.delete(candidate);
+  if (guildCache.size >= GUILD_CACHE_MAX) {
+    const oldest = guildCache.keys().next();
+    if (!oldest.done) guildCache.delete(oldest.value);
+  }
+  guildCache.set(key, entry);
+}
+
+export function forgetGuilds(accessToken: string) {
+  guildCache.delete(hashToken(accessToken));
+}
+
+function retryAfterMs(response: Response, body: unknown) {
+  const header = Number(response.headers.get("retry-after"));
+  const fromBody = typeof body === "object" && body && "retry_after" in body ? Number((body as { retry_after: unknown }).retry_after) : NaN;
+  const seconds = Number.isFinite(fromBody) ? fromBody : Number.isFinite(header) ? header : 1;
+  return Math.max(1_000, Math.min(60_000, seconds * 1_000));
+}
+
+async function fetchGuildsOnce(accessToken: string): Promise<DiscordGuild[]> {
+  let response: Response;
+  try {
+    response = await discordFetch(`${DISCORD_API}/users/@me/guilds`, accessToken);
+  } catch (error) {
+    // AbortController fires AbortError once DISCORD_TIMEOUT_MS elapses.
+    throw new GuildFetchError(error instanceof Error && error.name === "AbortError" ? "timeout" : "upstream");
+  }
+  if (response.ok) return await response.json() as DiscordGuild[];
+  if (response.status === 401) throw new GuildFetchError("expired", 401);
+  if (response.status === 429) {
+    const body = await response.json().catch(() => null);
+    throw new GuildFetchError("rate-limited", 429, retryAfterMs(response, body));
+  }
+  throw new GuildFetchError("upstream", response.status);
+}
 
 export async function discordGuilds(accessToken: string): Promise<DiscordGuild[]> {
   const cacheKey = hashToken(accessToken);
   const cached = guildCache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now()) return cached.guilds;
-
-  const response = await discordFetch(`${DISCORD_API}/users/@me/guilds`, accessToken);
-  if (!response.ok) {
-    if (response.status === 401) throw new Error("Discord session expired");
-    throw new Error(`Discord guild request failed: ${response.status}`);
+  if (cached && cached.expiresAt > Date.now()) {
+    if (cached.ok) return cached.guilds;
+    // Short-lived negative caching, so a failing dashboard on reload does not
+    // hammer Discord and turn a transient problem into a sustained 429.
+    throw cached.error;
   }
-  const guilds = await response.json() as DiscordGuild[];
-  guildCache.set(cacheKey, { guilds, expiresAt: Date.now() + GUILD_CACHE_MS });
-  return guilds;
+
+  try {
+    const guilds = await fetchGuildsOnce(accessToken);
+    rememberGuilds(cacheKey, { ok: true, guilds, expiresAt: Date.now() + GUILD_CACHE_MS });
+    return guilds;
+  } catch (error) {
+    const failure = error instanceof GuildFetchError ? error : new GuildFetchError("upstream");
+    // One retry, but only for the causes a retry can actually fix. Retrying a
+    // 401 or a 429 makes both worse.
+    if (failure.reason === "timeout" || (failure.reason === "upstream" && (failure.status ?? 500) >= 500)) {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      try {
+        const guilds = await fetchGuildsOnce(accessToken);
+        rememberGuilds(cacheKey, { ok: true, guilds, expiresAt: Date.now() + GUILD_CACHE_MS });
+        return guilds;
+      } catch (retryError) {
+        const retryFailure = retryError instanceof GuildFetchError ? retryError : new GuildFetchError("upstream");
+        rememberGuilds(cacheKey, { ok: false, error: retryFailure, expiresAt: Date.now() + FAILURE_CACHE_MS });
+        throw retryFailure;
+      }
+    }
+    rememberGuilds(cacheKey, { ok: false, error: failure, expiresAt: Date.now() + FAILURE_CACHE_MS });
+    throw failure;
+  }
 }
 
 export function canManageGuild(guild: DiscordGuild) {

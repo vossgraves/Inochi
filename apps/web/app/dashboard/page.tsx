@@ -1,13 +1,53 @@
 import Link from "next/link";
-import { ArrowUpRight, Crown, LogIn, RotateCcw } from "lucide-react";
-import { canManageGuild, discordGuilds, getSession } from "../../lib/auth";
+import { ArrowUpRight, Bot, Crown, LogIn, RotateCcw } from "lucide-react";
+import {
+  canManageGuild,
+  destroySession,
+  discordGuilds,
+  forgetGuilds,
+  getSession,
+  GuildFetchError,
+  type GuildFetchReason,
+} from "../../lib/auth";
 import { DashboardShell } from "../../components/dashboard-shell";
 import { BrandedEmptyState } from "../../components/branded-empty-state";
 import { BrandMark } from "../../components/brand-mark";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
-export default async function Dashboard() {
+/*
+  Copy per failure cause. The point is that each one tells the visitor whether
+  the fix is theirs (sign in again), a wait (rate limited), or nothing at all
+  (Discord is slow or down).
+*/
+const failureCopy: Record<GuildFetchReason, { eyebrow: string; title: string; body: string }> = {
+  expired: {
+    eyebrow: "Session ended",
+    title: "Discord signed you out",
+    body: "Discord no longer accepts this session, usually because the authorisation was revoked or it simply aged out. Signing in again fixes it.",
+  },
+  "rate-limited": {
+    eyebrow: "Rate limited",
+    title: "Discord asked us to slow down",
+    body: "Too many requests went to Discord for this account. Nothing is wrong with your configuration, and it clears on its own.",
+  },
+  timeout: {
+    eyebrow: "Discord timed out",
+    title: "Discord did not answer in time",
+    body: "The request to Discord ran past its limit. Your servers and settings are untouched.",
+  },
+  upstream: {
+    eyebrow: "Discord unavailable",
+    title: "Discord could not be reached",
+    body: "Discord returned an unexpected response. This is on their side, not yours, and your configuration is untouched.",
+  },
+};
+
+export default async function Dashboard({
+  searchParams,
+}: {
+  searchParams: Promise<{ refresh?: string }>;
+}) {
   const session = await getSession();
   if (!session) {
     return (
@@ -32,44 +72,75 @@ export default async function Dashboard() {
     );
   }
 
-  let guilds;
+  // ?refresh=1 busts the five-minute guild cache, so adding the bot or gaining
+  // Manage Server does not mean waiting silently for the cache to age out.
+  if ((await searchParams).refresh) forgetGuilds(session.accessToken);
+
+  let all;
   try {
-    guilds = (await discordGuilds(session.accessToken))
-      .filter(canManageGuild)
-      .sort(
-        (a, b) =>
-          Number(b.owner) - Number(a.owner) || a.name.localeCompare(b.name),
-      );
-  } catch {
+    all = await discordGuilds(session.accessToken);
+  } catch (error) {
+    const failure = error instanceof GuildFetchError ? error : new GuildFetchError("upstream");
+    // The old code caught with a bare `} catch {`, discarding the error, so no
+    // guild failure ever reached the logs. Never log the access token.
+    console.error("dashboard_guild_fetch_failed", {
+      userId: session.userId,
+      reason: failure.reason,
+      status: failure.status,
+      retryAfterMs: failure.retryAfterMs,
+    });
+    // A 401 means Discord will not accept this session again, so holding on to
+    // it only loops the visitor back here.
+    if (failure.reason === "expired") await destroySession();
+    const copy = failureCopy[failure.reason];
+    const waitSeconds = failure.retryAfterMs ? Math.ceil(failure.retryAfterMs / 1_000) : null;
     return (
       <main className="grid min-h-dvh place-items-center px-5 py-16 text-center">
         <div>
-          <BrandMark state="error" className="mx-auto size-16" />
+          <BrandMark state={failure.reason === "expired" ? "paused" : "error"} className="mx-auto size-16" />
           <span className="mt-8 block font-mono text-[0.7rem] tracking-[0.2em] text-destructive-text uppercase">
-            Discord unavailable
+            {copy.eyebrow}
           </span>
-          <h1 className="mt-4 text-4xl font-bold tracking-tight sm:text-5xl">
-            Could not load servers
-          </h1>
-          <p className="mx-auto mt-4 max-w-[54ch] leading-relaxed text-muted-foreground">
-            You are signed in as {session.username}, but Discord did not return your server list.
-            Retry the request or sign in again.
-          </p>
+          <h1 className="mt-4 text-4xl font-bold tracking-tight sm:text-5xl">{copy.title}</h1>
+          <p className="mx-auto mt-4 max-w-[54ch] leading-relaxed text-muted-foreground">{copy.body}</p>
+          {waitSeconds && (
+            <p className="mt-3 font-mono text-xs text-muted-foreground tnum">
+              Discord asked for about {waitSeconds}s.
+            </p>
+          )}
           <div className="mt-8 flex flex-wrap justify-center gap-3">
-            <Button asChild variant="primary">
-              <Link href="/dashboard">
-                Retry
-                <RotateCcw />
-              </Link>
-            </Button>
-            <Button asChild variant="outline">
-              <Link href="/api/auth/login">Sign in again</Link>
-            </Button>
+            {failure.reason === "expired" ? (
+              <Button asChild variant="primary">
+                <Link href="/api/auth/login">
+                  Sign in with Discord
+                  <LogIn />
+                </Link>
+              </Button>
+            ) : (
+              <>
+                <Button asChild variant="primary">
+                  <Link href="/dashboard?refresh=1">
+                    Try again
+                    <RotateCcw />
+                  </Link>
+                </Button>
+                <Button asChild variant="outline">
+                  <Link href="/api/auth/login">Sign in again</Link>
+                </Button>
+              </>
+            )}
           </div>
+          <p className="mt-8 font-mono text-[0.65rem] text-muted-foreground">
+            Signed in as {session.username}
+          </p>
         </div>
       </main>
     );
   }
+
+  const guilds = all
+    .filter(canManageGuild)
+    .sort((a, b) => Number(b.owner) - Number(a.owner) || a.name.localeCompare(b.name));
 
   return (
     <DashboardShell>
@@ -83,9 +154,17 @@ export default async function Dashboard() {
             Choose a community where you have Manage Server permission.
           </p>
         </div>
-        <span className="font-mono text-xs text-muted-foreground tnum">
-          {guilds.length} available
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-xs text-muted-foreground tnum">
+            {guilds.length} of {all.length} available
+          </span>
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/dashboard?refresh=1">
+              Refresh
+              <RotateCcw />
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {/*
@@ -134,10 +213,35 @@ export default async function Dashboard() {
         </ul>
       )}
 
+      {/*
+        A zero result used to be indistinguishable from a failure. Saying how
+        many guilds Discord returned makes the difference obvious: 0 of 0 means
+        Discord sent nothing, 0 of 14 means the permission filter removed them.
+      */}
       {!guilds.length && (
         <div className="mt-10">
-          <BrandedEmptyState title="No manageable servers found">
-            Discord did not return a server where this account has Manage Server permission.
+          <BrandedEmptyState
+            title={all.length ? "No servers you can manage" : "Discord returned no servers"}
+            action={
+              <div className="flex flex-wrap justify-center gap-3">
+                <Button asChild variant="primary">
+                  <Link href="/api/auth/invite">
+                    Add Inochi to a server
+                    <Bot />
+                  </Link>
+                </Button>
+                <Button asChild variant="outline">
+                  <Link href="/dashboard?refresh=1">
+                    Refresh
+                    <RotateCcw />
+                  </Link>
+                </Button>
+              </div>
+            }
+          >
+            {all.length
+              ? `Discord returned ${all.length} server${all.length === 1 ? "" : "s"} for this account, but none where you have Manage Server or Administrator. Ask an admin to grant it, then refresh.`
+              : "Discord returned no servers at all for this account. If you expected some, the authorisation may be missing the guilds scope, which signing in again will fix."}
           </BrandedEmptyState>
         </div>
       )}
