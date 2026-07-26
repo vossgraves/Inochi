@@ -11,14 +11,15 @@
     "start": "tsx ../../packages/database/src/migrate.ts && tsx src/index.ts"
   },
   "dependencies": {
+    "@discordjs/builders": "^1.14.1",
     "@inochi/core": "*",
     "@inochi/database": "*",
     "@inochi/importers": "*",
     "@inochi/rank-card": "*",
     "@inochi/storage": "*",
-    "@discordjs/builders": "^1.14.1",
     "@napi-rs/canvas": "^0.1.69",
     "discord.js": "^14.18.0",
-    "dotenv": "^16.4.7"
+    "dotenv": "^16.4.7",
+    "gifenc": "^1.0.3"
   }
 }

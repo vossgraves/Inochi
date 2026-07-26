@@ -1,4 +1,5 @@
 import { createCanvas } from "@napi-rs/canvas";
+import { applyPalette, GIFEncoder, quantize } from "gifenc";
 import type { InochiEmoji } from "./emojis";
 
 /*
@@ -154,4 +155,58 @@ export function renderEmoji(name: InochiEmoji) {
   const ctx = canvas.getContext("2d") as unknown as CanvasRenderingContext2D;
   drawEmoji(ctx, name, 0);
   return canvas.toBuffer("image/png");
+}
+
+/*
+  Only these four say something by moving: XP and a level-up rise, a backup
+  rotates, a coinflip turns. The rest are labels, and a label that loops
+  forever in the middle of a sentence is just noise.
+*/
+export const ANIMATED_EMOJIS = new Set<InochiEmoji>(["xp", "levelup", "backup", "coinflip"]);
+
+const FRAMES = 24;
+const FRAME_DELAY_MS = 60;
+// Discord rejects an emoji over 256 KB.
+export const EMOJI_SIZE_LIMIT = 256 * 1024;
+
+export function isAnimated(name: InochiEmoji) {
+  return ANIMATED_EMOJIS.has(name);
+}
+
+export function renderEmojiFrames(name: InochiEmoji, frames = FRAMES) {
+  const canvas = createCanvas(128, 128);
+  const ctx = canvas.getContext("2d") as unknown as CanvasRenderingContext2D;
+  return Array.from({ length: frames }, (_, index) => {
+    drawEmoji(ctx, name, index / frames);
+    return ctx.getImageData(0, 0, 128, 128).data;
+  });
+}
+
+/**
+ * Encodes the frames as a looping GIF. Quantising each frame separately would
+ * make the palette shimmer between frames, so one palette is built from the
+ * first frame and reused; these emojis are a handful of flat colours, so that
+ * costs nothing visually.
+ */
+export function renderAnimatedEmoji(name: InochiEmoji, frames = FRAMES) {
+  const gif = GIFEncoder();
+  const rendered = renderEmojiFrames(name, frames);
+  const palette = quantize(rendered[0]!, 64, { format: "rgba4444" });
+  for (const frame of rendered) {
+    gif.writeFrame(applyPalette(frame, palette, "rgba4444"), 128, 128, {
+      palette,
+      delay: FRAME_DELAY_MS,
+      transparent: true,
+      solid: false,
+    });
+  }
+  gif.finish();
+  return Buffer.from(gif.bytes());
+}
+
+/** PNG for a still emoji, GIF for one that earns the motion. */
+export function renderEmojiAsset(name: InochiEmoji) {
+  return isAnimated(name)
+    ? { buffer: renderAnimatedEmoji(name), mime: "image/gif" as const }
+    : { buffer: renderEmoji(name), mime: "image/png" as const };
 }
