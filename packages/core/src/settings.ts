@@ -7,7 +7,9 @@ export const rankCardSettingsSchema = z.object({
   enabled: z.boolean().default(true),
   ephemeral: z.boolean().default(false),
   relativeXp: z.boolean().default(true),
-  accentColor: z.string().regex(/^#[0-9a-f]{6}$/i).default("#8ba8ff"),
+  // 朱 vermilion, matching the dashboard accent. Guilds that already chose an
+  // accent keep it; this only applies to servers added from here on.
+  accentColor: z.string().regex(/^#[0-9a-f]{6}$/i).default("#d9401f"),
   backgroundKey: z.string().min(1).max(500).nullable().default(null),
   backgroundOverlay: z.number().min(0).max(0.95).default(0.86),
   avatarShape: z.enum(["rounded", "circle", "square"]).default("rounded"),

@@ -1,50 +1,425 @@
 import Link from "next/link";
-import { Activity, ArrowDownRight, ArrowRight, Blocks, Bot, Database, Gamepad2, Github, LineChart, LockKeyhole, MoveUpRight, ShieldCheck, Sparkles, Trophy, Users } from "lucide-react";
+import Image from "next/image";
+import {
+  ArrowRight,
+  Bot,
+  Database,
+  Gamepad2,
+  Github,
+  Gift,
+  LineChart,
+  LockKeyhole,
+  ShieldCheck,
+  Sparkles,
+} from "lucide-react";
 import { getSession } from "../lib/auth";
 import { LandingCurve } from "../components/landing-curve";
-import { Brand, BrandMark } from "../components/brand-mark";
+import { Brand, Kanji } from "../components/brand-mark";
+import { ThemeToggle } from "../components/theme-toggle";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+
+/*
+  Seven sections, six distinct layout families, two eyebrows total.
+
+  What this replaced: an aurora-blob hero over a div-mock rank card, a bento
+  grid of cursor-spotlight cards, a scrolling capability marquee, orbit rings
+  and a dashed-beam architecture diagram.
+*/
 
 const features = [
-  { icon: LineChart, tone: "cyan", span: "wide", title: "Curves you can reason about", text: "Preview exact thresholds, per-level costs, and long-term progression before saving.", visual: "curve" },
-  { icon: Sparkles, tone: "violet", span: "tall", title: "A rank card worth sharing", text: "Crisp member cards, configurable accents, custom backgrounds, and clear next-level progress.", visual: "rank" },
-  { icon: ShieldCheck, tone: "green", span: "standard", title: "Atomic by default", text: "PostgreSQL transactions protect XP, imports, games, and restores under concurrency.", visual: "atomic" },
-  { icon: Gamepad2, tone: "pink", span: "standard", title: "Progression with texture", text: "Word races, math rounds, vote boosts, weekly winners, role rewards, and channel policy.", visual: "games" },
-  { icon: LockKeyhole, tone: "amber", span: "standard", title: "Privacy is a setting", text: "Private leaderboards, hidden profiles, encrypted OAuth tokens, and scoped API keys.", visual: "privacy" },
-  { icon: Database, tone: "blue", span: "wide", title: "Your data stays portable", text: "Versioned backups plus reviewed imports from every major Discord leveling provider.", visual: "imports" },
+  {
+    icon: LineChart,
+    title: "Curves you can reason about",
+    text: "Preview exact thresholds, per-level costs, and long-term progression before saving.",
+  },
+  {
+    icon: Sparkles,
+    title: "A rank card worth sharing",
+    text: "Crisp member cards, configurable accents, custom backgrounds, and clear next-level progress.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Atomic by default",
+    text: "PostgreSQL transactions protect XP, imports, games, and restores under concurrency.",
+  },
+  {
+    icon: Gamepad2,
+    title: "Games that award real XP",
+    text: "Word races, math rounds, vote boosts, weekly winners, role rewards, and channel policy.",
+  },
+  {
+    icon: LockKeyhole,
+    title: "Privacy is a setting",
+    text: "Private leaderboards, hidden profiles, encrypted OAuth tokens, and scoped API keys.",
+  },
+  {
+    icon: Database,
+    title: "Your data stays portable",
+    text: "Versioned backups plus reviewed imports from every major Discord leveling provider.",
+  },
 ] as const;
 
-function FeatureVisual({ type }: { type: typeof features[number]["visual"] }) {
-  if (type === "curve") return <div className="feature-visual mini-chart" aria-hidden="true"><svg viewBox="0 0 320 100" preserveAspectRatio="none"><defs><linearGradient id="mini-fill" x1="0" x2="0" y1="0" y2="1"><stop stopColor="currentColor" stopOpacity=".32"/><stop offset="1" stopColor="currentColor" stopOpacity="0"/></linearGradient></defs><path className="mini-chart-fill" d="M0 94 C48 93 73 88 105 78 S162 57 196 47 S248 25 320 5 L320 100 L0 100Z"/><path className="mini-chart-line" d="M0 94 C48 93 73 88 105 78 S162 57 196 47 S248 25 320 5"/></svg><span>LV 1</span><span>LV 100</span></div>;
-  if (type === "rank") return <div className="feature-visual mini-rank" aria-hidden="true"><div className="mini-rank-avatar"><BrandMark state="active" /></div><div><strong>LEVEL 28</strong><span>VOSS GRAVES · #12</span><i><b /></i></div></div>;
-  if (type === "atomic") return <div className="feature-visual mini-events" aria-hidden="true"><span><i />XP committed <b>+86</b></span><span><i />Roles synced <b>03</b></span><span><i />Backup ready <b>OK</b></span></div>;
-  if (type === "games") return <div className="feature-visual game-orbit" aria-hidden="true"><span>WORD</span><span>MATH</span><span>2× XP</span><Trophy size={25}/></div>;
-  if (type === "privacy") return <div className="feature-visual privacy-stack" aria-hidden="true"><span><Users size={14}/>Members only <i /></span><span><LockKeyhole size={14}/>Profiles hidden <i /></span></div>;
-  return <div className="feature-visual provider-cloud" aria-hidden="true"><span>MEE6</span><span>Arcane</span><span>Lurkr</span><span>Amari</span><span>CSV</span></div>;
-}
+// Illustrative rows for the /top preview below. Deliberately uneven numbers and
+// handles that read like real Discord members rather than placeholder names.
+const sampleRanks = [
+  { handle: "kazegami", level: 41, xp: 92104 },
+  { handle: "mirelle.wav", level: 38, xp: 84220 },
+  { handle: "tsukibrew", level: 33, xp: 61478 },
+  { handle: "orenji_", level: 31, xp: 54903 },
+  { handle: "hollowpine", level: 28, xp: 38351 },
+] as const;
+
+const pipeline = [
+  {
+    title: "Activity enters",
+    text: "Messages and commands pass channel, cooldown, and privacy rules.",
+  },
+  {
+    title: "Progress commits",
+    text: "XP, levels, games, and rewards update in one transaction.",
+  },
+  {
+    title: "Every surface updates",
+    text: "Cards, roles, leaderboards, dashboard, and API stay aligned.",
+  },
+] as const;
 
 export default async function Home() {
   const session = await getSession();
   const dashboardHref = session ? "/dashboard" : "/api/auth/login";
-  return <div className="site-frame">
-    <header className="site-header shell"><Link href="/" className="brand mono"><Brand /></Link><nav><a href="#features">System</a><a href="#curve">Curve</a><a href="#architecture">Architecture</a></nav><div className="header-actions"><Link className="button compact ghost" href={dashboardHref}>{session ? "Dashboard" : "Sign in"}</Link><Link className="button compact primary" href="/api/auth/invite">Add bot<Bot size={15} /></Link></div></header>
-    <main>
-      <section className="hero shell">
-        <div className="hero-atmosphere" aria-hidden="true"><div className="aurora aurora-a"/><div className="aurora aurora-b"/><div className="animated-grid"/><svg className="hero-paths" viewBox="0 0 1200 700" preserveAspectRatio="none"><path d="M-40 530 C180 280 320 690 570 390 S930 120 1240 310"/><path d="M-40 610 C190 370 360 720 620 450 S990 220 1240 390"/><path d="M-30 430 C230 180 370 570 650 300 S1010 40 1250 220"/></svg></div>
-        <div className="hero-copy"><div className="eyebrow mono" data-hero><span className="live-dot"/>Self-hosted Discord progression</div><h1 data-hero>Leveling with a <span className="gradient-text">pulse.</span></h1><p className="lede" data-hero>A precise, expressive leveling system for communities that want control over the curve, the data, and the experience.</p><div className="hero-actions" data-hero><Link className="button primary" href="/api/auth/invite">Add Inochi to your server<Bot size={16} /></Link><Link className="button ghost" href={dashboardHref}>{session ? "Open your servers" : "Sign in with Discord"}<MoveUpRight size={16} /></Link><a className="button ghost source-button" href="https://github.com/vossgraves/Inochi" target="_blank" rel="noreferrer"><Github size={16} />Source</a></div><div className="trust-row" data-hero><span><i className="trust-icon violet"/>One shared curve</span><span><i className="trust-icon cyan"/>Atomic data</span><span><i className="trust-icon pink"/>Portable by design</span></div></div>
-        <div className="product-stage" data-hero aria-label="Example Inochi rank card">
-          <div className="orbit orbit-one"/><div className="orbit orbit-two"/><div className="orbit-node node-one"><Activity size={14}/></div><div className="orbit-node node-two"><Trophy size={14}/></div>
-          <div className="mock-rank-card" data-tilt><div className="rank-glare"/><div className="mock-avatar">VG<span>ONLINE</span></div><div className="mock-rank-main"><div className="mock-rank-top"><span>Voss Graves</span><strong><small>LEVEL</small> 28</strong></div><div className="mock-metrics"><span>RANK <b>#12</b></span><span><b>38,351</b> TOTAL XP</span></div><div className="mock-progress"><i /></div><div className="mock-rank-foot"><span>3,051 / 4,000 THIS LEVEL</span><span>949 XP TO LEVEL 29</span></div></div></div>
-          <div className="signal-card mono"><span>EVENT / MESSAGE</span><strong>+86 XP</strong><small><i />committed atomically</small></div>
-          <div className="level-toast"><Sparkles size={15}/><span><small>Next reward</small>Level 30 · Vanguard</span></div>
+  const dashboardLabel = session ? "Open dashboard" : "Sign in";
+
+  return (
+    <div className="min-h-dvh">
+      <header className="sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur-sm">
+        <div className="mx-auto flex h-16 w-full max-w-[1240px] items-center justify-between gap-6 px-5">
+          <Link href="/" className="shrink-0">
+            <Brand />
+          </Link>
+          <nav className="hidden items-center gap-7 font-mono text-[0.7rem] tracking-wider text-muted-foreground uppercase md:flex">
+            <a className="transition-colors hover:text-foreground" href="#curve">
+              Curve
+            </a>
+            <a className="transition-colors hover:text-foreground" href="#features">
+              Features
+            </a>
+            <a className="transition-colors hover:text-foreground" href="#giveaways">
+              Giveaways
+            </a>
+            <Link className="transition-colors hover:text-foreground" href="/commands">
+              Commands
+            </Link>
+            <Link className="transition-colors hover:text-foreground" href="/developers">
+              API
+            </Link>
+          </nav>
+          <div className="flex shrink-0 items-center gap-2">
+            <ThemeToggle />
+            <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
+              <Link href={dashboardHref}>{dashboardLabel}</Link>
+            </Button>
+            <Button asChild variant="primary" size="sm">
+              <Link href="/api/auth/invite">
+                Add to server
+                <Bot />
+              </Link>
+            </Button>
+          </div>
         </div>
-      </section>
-      <section className="marquee" aria-label="Inochi capabilities"><div><span>CURVES · RANK CARDS · ROLE REWARDS · CHAT GAMES · IMPORTS · BACKUPS · LEADERBOARDS · API ·</span><span aria-hidden="true">CURVES · RANK CARDS · ROLE REWARDS · CHAT GAMES · IMPORTS · BACKUPS · LEADERBOARDS · API ·</span></div></section>
-      <section className="section-block shell" id="features"><div className="section-intro" data-reveal><span className="eyebrow mono">One progression system</span><div><h2>Every surface <span className="gradient-text">agrees.</span></h2><p>The bot, dashboard, API, imports, and image renderer all use the same validated domain.</p></div></div><div className="feature-grid">{features.map(({ icon: Icon, tone, span, title, text, visual }, index) => <article className={`feature-card spotlight-card tone-${tone} feature-${span}`} key={title} data-reveal><div className="feature-card-top"><div className="feature-icon"><Icon size={19} /></div><span className="feature-number mono">0{index + 1}</span></div><FeatureVisual type={visual}/><div className="feature-copy"><h3>{title}</h3><p>{text}</p></div></article>)}</div></section>
-      <section className="curve-section" id="curve"><div className="shell" data-reveal><LandingCurve /></div></section>
-      <section className="section-block shell architecture" id="architecture"><div data-reveal><span className="eyebrow mono">Designed to leave cleanly</span><h2>Own the stack.<br/><span className="gradient-text">Keep the exit.</span></h2><p>One PostgreSQL truth connects Discord activity, the worker, dashboard, API, cards, and leaderboards. Deploy it where you want and take complete backups whenever you want.</p><Link className="text-link" href={dashboardHref}>Configure your first server <ArrowRight size={15} /></Link></div><div className="architecture-map" data-reveal><svg className="architecture-beams" viewBox="0 0 440 370" aria-hidden="true"><defs><linearGradient id="beam" x1="0" x2="1"><stop stopColor="#7c5cff"/><stop offset=".5" stopColor="#25d0f5"/><stop offset="1" stopColor="#ff5da2"/></linearGradient></defs><path d="M220 70 C220 115 90 112 90 172"/><path d="M220 70 C220 115 350 112 350 172"/><path d="M90 230 C90 290 220 260 220 320"/><path d="M350 230 C350 290 220 260 220 320"/></svg><div className="architecture-node node-discord"><Bot size={20}/><span>Discord activity</span><small>messages · commands · games</small></div><div className="architecture-node node-worker"><Gamepad2 size={20}/><span>Inochi worker</span><small>validate · calculate · reward</small></div><div className="architecture-node node-web"><Blocks size={20}/><span>Dashboard + API</span><small>configure · inspect · export</small></div><div className="architecture-node node-data"><Database size={20}/><span>PostgreSQL truth</span><small>atomic · portable · backed up</small></div></div></section>
-      <section className="process-strip shell" data-reveal><div><span>01</span><strong>Activity enters</strong><p>Messages and commands pass channel, cooldown, and privacy rules.</p></div><ArrowDownRight/><div><span>02</span><strong>Progress commits</strong><p>XP, levels, games, and rewards update in one transaction.</p></div><ArrowDownRight/><div><span>03</span><strong>Every surface updates</strong><p>Cards, roles, leaderboards, dashboard, and API stay aligned.</p></div></section>
-      <section className="final-cta"><div className="cta-aurora"/><div className="shell" data-reveal><span className="eyebrow mono">Ready when your server is</span><h2>Make progression feel <span className="gradient-text">intentional.</span></h2><p>Give your community a system that feels alive without surrendering control of the data.</p><div className="final-actions"><Link className="button primary" href="/api/auth/invite">Add Inochi to your server<Bot size={16}/></Link><Link className="button ghost" href={dashboardHref}>{session ? "Open dashboard" : "Sign in with Discord"}<ArrowRight size={16}/></Link></div></div></section>
-    </main>
-    <footer className="site-footer shell"><div className="brand mono"><Brand /></div><p>Independent, self-hosted Discord progression.</p><a href="https://github.com/vossgraves/Inochi" target="_blank" rel="noreferrer">Source</a></footer>
-  </div>;
+      </header>
+
+      <main>
+        {/* 1. Hero: asymmetric split, 5/7. Four text elements, no more. */}
+        <section className="border-b border-border">
+          <div className="mx-auto grid w-full max-w-[1240px] items-center gap-12 px-5 pt-16 pb-20 lg:grid-cols-12 lg:gap-16 lg:pt-24 lg:pb-28">
+            <div className="reveal lg:col-span-5">
+              <p className="font-mono text-[0.7rem] tracking-[0.2em] text-muted-foreground uppercase">
+                Self-hosted Discord progression
+              </p>
+              <h1 className="mt-6 flex items-start gap-5 text-5xl leading-[0.95] font-bold tracking-tight sm:text-6xl lg:text-[4.25rem]">
+                <Kanji className="mt-1 text-6xl text-primary-text sm:text-7xl lg:text-[5rem]" />
+                <span>Levels your server owns.</span>
+              </h1>
+              <p className="mt-6 max-w-[46ch] text-base leading-relaxed text-muted-foreground">
+                Set the curve exactly, keep the data in your own PostgreSQL, and take it with you.
+              </p>
+              <div className="mt-9 flex flex-wrap items-center gap-3">
+                <Button asChild variant="primary" size="lg">
+                  <Link href="/api/auth/invite">
+                    Add to server
+                    <Bot />
+                  </Link>
+                </Button>
+                <Button asChild variant="outline" size="lg">
+                  <Link href={dashboardHref}>
+                    {dashboardLabel}
+                    <ArrowRight />
+                  </Link>
+                </Button>
+              </div>
+            </div>
+
+            <div className="reveal lg:col-span-7">
+              {/*
+                The real renderer's output, produced by scripts/render-sample-card.ts
+                using the same code path as /rank. Not a div mock.
+              */}
+              <figure className="m-0">
+                <Image
+                  src="/brand/sample-rank-card.png"
+                  alt="An Inochi rank card showing a member at level 28, rank 12, with 38,351 total XP and 949 XP to the next level."
+                  width={960}
+                  height={300}
+                  priority
+                  className="h-auto w-full rounded-md border border-border"
+                />
+                <figcaption className="mt-3 font-mono text-[0.65rem] tracking-wider text-muted-foreground uppercase">
+                  Rendered by /rank
+                </figcaption>
+              </figure>
+            </div>
+          </div>
+        </section>
+
+        {/* 2. Curve: the actual differentiator, and interactive. */}
+        <section id="curve" className="border-b border-border scroll-mt-16">
+          <div className="mx-auto w-full max-w-[1240px] px-5 py-20 lg:py-28">
+            <div className="reveal">
+              <LandingCurve />
+            </div>
+          </div>
+        </section>
+
+        {/* 3. Features: editorial hairline rows with a mono index. No bento. */}
+        <section id="features" className="border-b border-border scroll-mt-16">
+          <div className="mx-auto w-full max-w-[1240px] px-5 py-20 lg:py-28">
+            <h2 className="reveal max-w-[18ch] text-4xl leading-tight font-bold tracking-tight sm:text-5xl">
+              One system, agreed on by every surface.
+            </h2>
+            <p className="reveal mt-5 max-w-[62ch] leading-relaxed text-muted-foreground">
+              The bot, dashboard, API, importers, and image renderer all read the same validated
+              settings and the same level curve.
+            </p>
+            <div className="mt-14">
+              {features.map(({ icon: Icon, title, text }, index) => (
+                <article
+                  key={title}
+                  className="reveal grid grid-cols-[auto_1fr] items-start gap-x-5 gap-y-2 border-t border-border py-7 sm:grid-cols-[3.5rem_1.75rem_1fr] sm:gap-x-6 md:grid-cols-[3.5rem_1.75rem_minmax(0,22rem)_1fr]"
+                >
+                  <span className="font-mono text-xs tracking-wider text-muted-foreground tnum">
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
+                  <Icon className="size-5 text-primary-text sm:mt-0.5" aria-hidden="true" />
+                  <h3 className="col-start-2 text-lg font-semibold tracking-tight sm:col-start-3">
+                    {title}
+                  </h3>
+                  <p className="col-start-2 max-w-[62ch] leading-relaxed text-muted-foreground sm:col-start-3 md:col-start-4 md:pt-0.5">
+                    {text}
+                  </p>
+                </article>
+              ))}
+              <div className="border-t border-border" />
+            </div>
+          </div>
+        </section>
+
+        {/* 4. Leaderboard: a dense mono table, the same shape /top produces. */}
+        <section className="border-b border-border">
+          <div className="mx-auto w-full max-w-[1240px] px-5 py-20 lg:py-28">
+            <div className="reveal flex flex-wrap items-end justify-between gap-4">
+              <h2 className="max-w-[20ch] text-4xl leading-tight font-bold tracking-tight sm:text-5xl">
+                Standings that stay honest.
+              </h2>
+              <Badge variant="outline">Example server</Badge>
+            </div>
+            <div className="reveal mt-12 overflow-x-auto">
+              <table className="w-full min-w-[34rem] border-collapse text-left">
+                <thead>
+                  <tr className="border-b border-border font-mono text-[0.65rem] tracking-wider text-muted-foreground uppercase">
+                    <th scope="col" className="w-16 py-3 font-normal">
+                      Rank
+                    </th>
+                    <th scope="col" className="py-3 font-normal">
+                      Member
+                    </th>
+                    <th scope="col" className="w-24 py-3 text-right font-normal">
+                      Level
+                    </th>
+                    <th scope="col" className="w-36 py-3 text-right font-normal">
+                      Total XP
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sampleRanks.map((row, index) => (
+                    <tr key={row.handle} className="border-b border-border/60">
+                      <td className="py-4 font-mono text-sm text-primary-text tnum">
+                        {String(index + 1).padStart(2, "0")}
+                      </td>
+                      <td className="py-4 font-medium">{row.handle}</td>
+                      <td className="py-4 text-right font-mono text-sm tnum">{row.level}</td>
+                      <td className="py-4 text-right font-mono text-sm text-muted-foreground tnum">
+                        {row.xp.toLocaleString("en-US")}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="reveal mt-6 max-w-[62ch] text-sm leading-relaxed text-muted-foreground">
+              Publish it on the web, pin it to a channel that updates itself, or keep it to managers
+              only. Weekly standings track separately from all-time.
+            </p>
+          </div>
+        </section>
+
+        {/* 5. Architecture: a vertical hairline flow, no gradient beams. */}
+        <section className="border-b border-border">
+          <div className="mx-auto grid w-full max-w-[1240px] gap-12 px-5 py-20 lg:grid-cols-12 lg:gap-20 lg:py-28">
+            <div className="reveal lg:col-span-5">
+              <h2 className="max-w-[16ch] text-4xl leading-tight font-bold tracking-tight sm:text-5xl">
+                Own the stack. Keep the exit.
+              </h2>
+              <p className="mt-5 max-w-[52ch] leading-relaxed text-muted-foreground">
+                One PostgreSQL truth connects Discord activity, the worker, dashboard, API, cards,
+                and leaderboards. Deploy it where you want and take complete backups whenever you
+                want.
+              </p>
+              <Link
+                className="mt-7 inline-flex items-center gap-2 text-sm font-medium text-primary-text underline-offset-4 hover:underline"
+                href={dashboardHref}
+              >
+                Configure your first server
+                <ArrowRight className="size-4" />
+              </Link>
+            </div>
+            <ol className="reveal lg:col-span-7 lg:pt-2">
+              {pipeline.map((step, index) => (
+                <li
+                  key={step.title}
+                  className="grid grid-cols-[3rem_1fr] items-start gap-x-5 border-t border-border py-8"
+                >
+                  <span className="font-mono text-xs tracking-wider text-muted-foreground tnum">
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
+                  <div>
+                    <h3 className="text-lg font-semibold tracking-tight">{step.title}</h3>
+                    <p className="mt-2 max-w-[52ch] leading-relaxed text-muted-foreground">
+                      {step.text}
+                    </p>
+                  </div>
+                </li>
+              ))}
+              <li className="border-t border-border" />
+            </ol>
+          </div>
+        </section>
+
+        {/*
+          6. Giveaways: designed, not wired. The backend lands in the next
+          change; this section and the dashboard nav slot are the anchors.
+        */}
+        <section id="giveaways" className="border-b border-border scroll-mt-16">
+          <div className="mx-auto grid w-full max-w-[1240px] items-center gap-12 px-5 py-20 lg:grid-cols-12 lg:gap-16 lg:py-28">
+            <div className="reveal lg:col-span-7">
+              <p className="font-mono text-[0.7rem] tracking-[0.2em] text-muted-foreground uppercase">
+                In development
+              </p>
+              <h2 className="mt-6 max-w-[18ch] text-4xl leading-tight font-bold tracking-tight sm:text-5xl">
+                Giveaways, weighted by the levels people earned.
+              </h2>
+              <p className="mt-5 max-w-[58ch] leading-relaxed text-muted-foreground">
+                Entries drawn from the same progression data the rest of Inochi runs on, so
+                long-standing members can carry better odds than an account that joined this
+                morning.
+              </p>
+            </div>
+            <div className="reveal lg:col-span-5">
+              <div className="border border-border">
+                <div className="flex items-center gap-3 border-b border-border px-5 py-4">
+                  <Gift className="size-4 text-primary-text" aria-hidden="true" />
+                  <span className="font-mono text-[0.7rem] tracking-wider uppercase">
+                    Nitro, one month
+                  </span>
+                  <Badge variant="live" className="ml-auto">
+                    Live
+                  </Badge>
+                </div>
+                <dl className="grid grid-cols-2">
+                  <div className="border-r border-b border-border px-5 py-4">
+                    <dt className="font-mono text-[0.65rem] tracking-wider text-muted-foreground uppercase">
+                      Entries
+                    </dt>
+                    <dd className="mt-1.5 font-mono text-xl tnum">184</dd>
+                  </div>
+                  <div className="border-b border-border px-5 py-4">
+                    <dt className="font-mono text-[0.65rem] tracking-wider text-muted-foreground uppercase">
+                      Minimum level
+                    </dt>
+                    <dd className="mt-1.5 font-mono text-xl tnum">10</dd>
+                  </div>
+                  <div className="border-r border-border px-5 py-4">
+                    <dt className="font-mono text-[0.65rem] tracking-wider text-muted-foreground uppercase">
+                      Draws
+                    </dt>
+                    <dd className="mt-1.5 font-mono text-xl tnum">3</dd>
+                  </div>
+                  <div className="px-5 py-4">
+                    <dt className="font-mono text-[0.65rem] tracking-wider text-muted-foreground uppercase">
+                      Closes
+                    </dt>
+                    <dd className="mt-1.5 font-mono text-xl tnum">48h</dd>
+                  </div>
+                </dl>
+              </div>
+              <p className="mt-3 font-mono text-[0.65rem] tracking-wider text-muted-foreground uppercase">
+                Interface preview
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* 7. Close. */}
+        <section className="border-b border-border">
+          <div className="mx-auto w-full max-w-[1240px] px-5 py-24 text-center lg:py-32">
+            <Kanji className="reveal block text-6xl text-primary-text" />
+            <h2 className="reveal mx-auto mt-8 max-w-[16ch] text-4xl leading-tight font-bold tracking-tight sm:text-5xl">
+              Give progression to your community, not to a vendor.
+            </h2>
+            <div className="reveal mt-10 flex flex-wrap justify-center gap-3">
+              <Button asChild variant="primary" size="lg">
+                <Link href="/api/auth/invite">
+                  Add to server
+                  <Bot />
+                </Link>
+              </Button>
+              <Button asChild variant="outline" size="lg">
+                <Link href={dashboardHref}>
+                  {dashboardLabel}
+                  <ArrowRight />
+                </Link>
+              </Button>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer className="mx-auto flex w-full max-w-[1240px] flex-wrap items-center justify-between gap-6 px-5 py-10">
+        <Brand />
+        <p className="text-sm text-muted-foreground">
+          Independent, self-hosted Discord progression.
+        </p>
+        <a
+          className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          href="https://github.com/vossgraves/Inochi"
+          target="_blank"
+          rel="noreferrer"
+        >
+          <Github className="size-4" />
+          Source
+        </a>
+      </footer>
+    </div>
+  );
 }
