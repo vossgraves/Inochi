@@ -1,5 +1,12 @@
 import { createCanvas } from "@napi-rs/canvas";
-import { applyPalette, GIFEncoder, quantize } from "gifenc";
+/*
+  gifenc is CommonJS, and its bundled dist defeats Node's static detection of
+  named CJS exports, so `import { GIFEncoder } from "gifenc"` resolves at build
+  time but throws at runtime under ESM. The default export carries them.
+*/
+import gifenc from "gifenc";
+
+const { applyPalette, GIFEncoder, quantize } = gifenc;
 import type { InochiEmoji } from "./emojis";
 
 /*

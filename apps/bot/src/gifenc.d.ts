@@ -20,17 +20,26 @@ declare module "gifenc" {
     bytes(): Uint8Array;
   }
 
-  export function GIFEncoder(options?: { auto?: boolean }): GifEncoderInstance;
+  /*
+    Declared as a default export only. The named exports exist on the CommonJS
+    object but Node cannot detect them statically in the bundled dist, so
+    importing them by name typechecks and then fails at runtime. Keeping the
+    declaration matched to the default keeps that mistake from compiling.
+  */
+  export interface GifEnc {
+    GIFEncoder(options?: { auto?: boolean }): GifEncoderInstance;
+    quantize(
+      data: Uint8Array | Uint8ClampedArray,
+      maxColors: number,
+      options?: { format?: "rgb565" | "rgb444" | "rgba4444"; oneBitAlpha?: boolean | number; clearAlpha?: boolean },
+    ): GifPalette;
+    applyPalette(
+      data: Uint8Array | Uint8ClampedArray,
+      palette: GifPalette,
+      format?: "rgb565" | "rgb444" | "rgba4444",
+    ): Uint8Array;
+  }
 
-  export function quantize(
-    data: Uint8Array | Uint8ClampedArray,
-    maxColors: number,
-    options?: { format?: "rgb565" | "rgb444" | "rgba4444"; oneBitAlpha?: boolean | number; clearAlpha?: boolean },
-  ): GifPalette;
-
-  export function applyPalette(
-    data: Uint8Array | Uint8ClampedArray,
-    palette: GifPalette,
-    format?: "rgb565" | "rgb444" | "rgba4444",
-  ): Uint8Array;
+  const gifenc: GifEnc;
+  export default gifenc;
 }
