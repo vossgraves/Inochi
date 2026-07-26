@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { notice, noticeText, UserNotice } from "./replies";
 import { EmbedBuilder, PermissionFlagsBits, type GuildMember, type Message } from "discord.js";
 import { levelForXp, parseGuildSettings, progressForXp, xpForLevel } from "@inochi/core";
 import {
@@ -34,12 +36,12 @@ function booleanArg(value: string | undefined) {
   if (!value) return undefined;
   if (["on", "true", "yes", "enable", "enabled"].includes(value.toLowerCase())) return true;
   if (["off", "false", "no", "disable", "disabled"].includes(value.toLowerCase())) return false;
-  throw new Error("Use on or off");
+  throw notice("Use on or off.");
 }
 
 function integerArg(value: string | undefined, label: string) {
   const result = Number(value);
-  if (!Number.isSafeInteger(result)) throw new Error(`${label} must be a whole number`);
+  if (!Number.isSafeInteger(result)) throw notice(`${label} must be a whole number`);
   return result;
 }
 
@@ -73,34 +75,34 @@ export async function handlePrefixCommand(message: Message<true>, guildRow?: Awa
     return true;
   }
   try {
-    if (progressionCommands.has(command) && !guild.settings.enabled) throw new Error("XP is disabled in this server");
+    if (progressionCommands.has(command) && !guild.settings.enabled) throw notice("XP is turned off in this server.", "A manager can enable it from the dashboard.");
     void sendGuildLog(message.client, message.guildId, "commandUsage", "Prefix command used", `<@${message.author.id}> used \`${configured.prefix}${command}\` in <#${message.channelId}>.`).catch(console.error);
     if (managerCommands.has(command)) void recordAudit(message.guildId, message.author.id, "command.admin", { command, channelId: message.channelId, source: "prefix" }).catch(console.error);
     if (command === "help") {
       const payload = args[0] ? commandDetailComponents(args[0], configured.prefix, "prefix") : commandOverviewComponents(configured.prefix);
-      if (!payload) throw new Error(`Unknown command: ${args[0]}`);
+      if (!payload) throw notice(`Unknown command: ${args[0]}`);
       await message.reply(payload);
     } else if (command === "rank") {
-      if (!guild.settings.rankCard.enabled) throw new Error("Rank cards are disabled in this server");
+      if (!guild.settings.rankCard.enabled) throw notice("Rank cards are turned off in this server.", "A manager can enable them from the dashboard.");
       const target = message.mentions.users.first() ?? message.author;
       const rank = await getRank(db, message.guildId, target.id);
-      if (!rank || rank.xp <= 0) throw new Error(`${target.displayName} has not earned XP yet`);
+      if (!rank || rank.xp <= 0) throw notice(`${target.displayName} has not earned XP yet`);
       const progress = progressForXp(rank.xp, guild.settings);
       await message.reply(`**${target.displayName}** · Rank **#${rank.rank}** · Level **${progress.level}** · **${rank.xp.toLocaleString()} XP** · ${Math.round(progress.progress * 100)}% to next level`);
     } else if (command === "top") {
-      if (!guild.settings.leaderboard.enabled) throw new Error("The leaderboard is disabled");
+      if (!guild.settings.leaderboard.enabled) throw notice("The leaderboard is turned off in this server.", "A manager can enable it from the dashboard.");
       const page = args.find((arg) => /^\d+$/.test(arg)) ? integerArg(args.find((arg) => /^\d+$/.test(arg)), "Page") : 1;
-      if (page < 1) throw new Error("Page must be at least 1");
+      if (page < 1) throw notice("Page numbers start at 1.");
       const rendered = await renderLeaderboard(message.guild, guild.settings, { page, highlightedUserId: message.mentions.users.first()?.id, interactiveUserId: message.author.id });
       await message.reply(rendered.payload);
     } else if (command === "coinflip") {
       const opponent = message.mentions.members?.first();
       const wager = Number(args.find((arg) => /^\d+$/.test(arg)));
       const sideArg = args.find((arg) => /^(h|head|heads|t|tail|tails)$/i.test(arg));
-      if (!opponent || !Number.isSafeInteger(wager) || !sideArg) throw new Error(`Usage: \`${configured.prefix}${name} @opponent wager heads|tails\``);
+      if (!opponent || !Number.isSafeInteger(wager) || !sideArg) throw notice(`Usage: \`${configured.prefix}${name} @opponent wager heads|tails\``);
       await startCoinflipMessage(message, opponent, wager, sideArg.toLowerCase().startsWith("h") ? "heads" : "tails");
     } else if (command === "word" || command === "maths") {
-      if (!message.channel.isTextBased() || message.channel.isDMBased()) throw new Error("Choose a server text channel");
+      if (!message.channel.isTextBased() || message.channel.isDMBased()) throw notice("Run this in a server text channel.", "It does not work in DMs or voice channels.");
       await startGame(message.channel, command === "word" ? "word" : "math");
     } else if (command === "botstatus") {
       await message.reply(`**Inochi status** · ${message.client.guilds.cache.size.toLocaleString()} servers · ${message.client.ws.shards.size} shard${message.client.ws.shards.size === 1 ? "" : "s"} · ${message.client.ws.ping} ms · ${Math.floor(message.client.uptime / 60_000)} min uptime`);
@@ -109,14 +111,14 @@ export async function handlePrefixCommand(message: Message<true>, guildRow?: Awa
       await message.reply(`${process.env.APP_URL ?? "http://localhost:3000"}/dashboard/${message.guildId}${suffix}`);
     } else if (command === "weekly" || command === "winner") {
       const action = command === "winner" ? "winner" : (args[0]?.toLowerCase() ?? "show");
-      if (!["show", "enable", "disable", "reset", "winner"].includes(action)) throw new Error(`Usage: \`${configured.prefix}${name} [show|enable|disable|reset]\``);
-      if (["enable", "disable", "reset", "winner"].includes(action) && !manager) throw new Error("Manage Server is required for that action");
+      if (!["show", "enable", "disable", "reset", "winner"].includes(action)) throw notice(`Usage: \`${configured.prefix}${name} [show|enable|disable|reset]\``);
+      if (["enable", "disable", "reset", "winner"].includes(action) && !manager) throw notice("You need the Manage Server permission for that action.");
       if (action === "enable" || action === "disable") {
         guild.settings.community.weeklyXp = action === "enable";
         await saveSettings(guild, message.author.id, "settings.weekly");
         await message.reply(`Weekly XP is now **${action}d**.`);
       } else {
-        if (!guild.settings.community.weeklyXp) throw new Error("Weekly XP is disabled");
+        if (!guild.settings.community.weeklyXp) throw notice("Weekly XP is turned off in this server.", "A manager can enable it from the dashboard.");
         const rows = await db.select().from(members).where(and(eq(members.guildId, message.guildId), sql`${members.weeklyXp} > 0`)).orderBy(desc(members.weeklyXp)).limit(action === "winner" ? 3 : 10);
         if (action === "reset") {
           await db.update(members).set({ weeklyXp: 0 }).where(eq(members.guildId, message.guildId));
@@ -134,7 +136,7 @@ export async function handlePrefixCommand(message: Message<true>, guildRow?: Awa
       if (action === "show") await message.reply(guild.settings.community.blacklistRoleIds.map((id) => `<@&${id}>`).join(", ") || "No roles are blacklisted.");
       else {
         const role = message.mentions.roles.first();
-        if (!role || !["add", "remove"].includes(action)) throw new Error(`Usage: \`${configured.prefix}${name} add|remove @role\``);
+        if (!role || !["add", "remove"].includes(action)) throw notice(`Usage: \`${configured.prefix}${name} add|remove @role\``);
         guild.settings.community.blacklistRoleIds = guild.settings.community.blacklistRoleIds.filter((id) => id !== role.id);
         if (action === "add") guild.settings.community.blacklistRoleIds.push(role.id);
         await saveSettings(guild, message.author.id, "settings.blacklist");
@@ -142,7 +144,7 @@ export async function handlePrefixCommand(message: Message<true>, guildRow?: Awa
       }
     } else if (command === "reset" || command === "clear") {
       const user = message.mentions.users.first();
-      if (!user) throw new Error(`Usage: \`${configured.prefix}${name} @member\``);
+      if (!user) throw notice(`Usage: \`${configured.prefix}${name} @member\``);
       const values = command === "reset" ? { xp: 0, weeklyXp: 0, cooldownUntil: null } : { cooldownUntil: null };
       await db.update(members).set(values).where(and(eq(members.guildId, message.guildId), eq(members.userId, user.id)));
       if (command === "reset") {
@@ -153,7 +155,7 @@ export async function handlePrefixCommand(message: Message<true>, guildRow?: Awa
     } else if (command === "refresh") {
       const scope = args[0]?.toLowerCase();
       if (scope === "points") {
-        if (args[1] !== "RESET") throw new Error(`Usage: \`${configured.prefix}${name} points RESET\``);
+        if (args[1] !== "RESET") throw notice(`Usage: \`${configured.prefix}${name} points RESET\``);
         await db.update(members).set({ xp: 0, weeklyXp: 0, cooldownUntil: null }).where(eq(members.guildId, message.guildId));
         await markPersistentLeaderboardDirty(db, message.guildId);
         await db.insert(auditLogs).values({ guildId: message.guildId, actorId: message.author.id, action: "xp.reset-all" });
@@ -168,7 +170,7 @@ export async function handlePrefixCommand(message: Message<true>, guildRow?: Awa
           if (result) changed += result.add.length + result.remove.length;
         }
         await message.reply(`Reward roles refreshed with ${changed} role changes.`);
-      } else throw new Error(`Usage: \`${configured.prefix}${name} roles\` or \`${configured.prefix}${name} points RESET\``);
+      } else throw notice(`Usage: \`${configured.prefix}${name} roles\` or \`${configured.prefix}${name} points RESET\``);
     } else if (command === "calculate") {
       const level = integerArg(args.find((arg) => /^\d+$/.test(arg)), "Level");
       const user = message.mentions.users.first() ?? message.author;
@@ -178,14 +180,14 @@ export async function handlePrefixCommand(message: Message<true>, guildRow?: Awa
       await message.reply(`${user} needs **${Math.max(0, required - (rank?.xp ?? 0)).toLocaleString()} XP** to reach level **${target}** (${required.toLocaleString()} total).`);
     } else if (command === "sync") {
       const target = message.mentions.members?.first() ?? message.member!;
-      if (target.id !== message.author.id && !manager) throw new Error("Manage Server is required to sync another member");
+      if (target.id !== message.author.id && !manager) throw notice("You need the Manage Server permission to sync someone else.");
       const { syncMember } = await import("./commands/handler");
       const changes = await syncMember(target);
       await message.reply(`Roles synchronized. Added ${changes.add.length}, removed ${changes.remove.length}.`);
     } else if (command === "addxp") {
       const user = message.mentions.users.first();
       const numeric = args.filter((arg) => /^-?\d+$/.test(arg));
-      if (!user || !numeric[0]) throw new Error(`Usage: \`${configured.prefix}${name} @member amount [add_xp|set_xp|add_levels|set_level]\``);
+      if (!user || !numeric[0]) throw notice(`Usage: \`${configured.prefix}${name} @member amount [add_xp|set_xp|add_levels|set_level]\``);
       const amount = integerArg(numeric[0], "Amount");
       const operation = args.find((arg) => ["add_xp", "set_xp", "add_levels", "set_level"].includes(arg)) ?? "add_xp";
       const current = await getRank(db, message.guildId, user.id);
@@ -200,7 +202,7 @@ export async function handlePrefixCommand(message: Message<true>, guildRow?: Awa
     } else if (command === "rewardrole") {
       const role = message.mentions.roles.first();
       const level = integerArg(args.find((arg) => /^\d+$/.test(arg)), "Level");
-      if (!role || level < 0) throw new Error(`Usage: \`${configured.prefix}${name} @role level [keep] [dont_sync]\``);
+      if (!role || level < 0) throw notice(`Usage: \`${configured.prefix}${name} @role level [keep] [dont_sync]\``);
       guild.settings.rewards = guild.settings.rewards.filter((reward) => reward.roleId !== role.id);
       if (level > 0) guild.settings.rewards.push({ roleId: role.id, level, keep: args.includes("keep"), noSync: args.includes("dont_sync") });
       await saveSettings(guild, message.author.id, "settings.reward-role");
@@ -208,15 +210,15 @@ export async function handlePrefixCommand(message: Message<true>, guildRow?: Awa
     } else if (command === "multiplier") {
       const type = args[0]?.toLowerCase();
       const value = Number(args.find((arg) => /^\d+(\.\d+)?$/.test(arg)));
-      if (!Number.isFinite(value) || value < 0 || value > 100 || !["role", "channel"].includes(type ?? "")) throw new Error(`Usage: \`${configured.prefix}${name} role|channel @target value\``);
+      if (!Number.isFinite(value) || value < 0 || value > 100 || !["role", "channel"].includes(type ?? "")) throw notice(`Usage: \`${configured.prefix}${name} role|channel @target value\``);
       if (type === "role") {
         const role = message.mentions.roles.first();
-        if (!role) throw new Error("Mention a role");
+        if (!role) throw notice("Mention a role");
         guild.settings.multipliers.roles = guild.settings.multipliers.roles.filter((item) => item.roleId !== role.id);
         if (value > 0) guild.settings.multipliers.roles.push({ roleId: role.id, multiplier: value });
       } else {
         const channel = message.mentions.channels.first();
-        if (!channel) throw new Error("Mention a channel");
+        if (!channel) throw notice("Mention a channel");
         guild.settings.multipliers.channels = guild.settings.multipliers.channels.filter((item) => item.channelId !== channel.id);
         if (value > 0) guild.settings.multipliers.channels.push({ channelId: channel.id, multiplier: value });
       }
@@ -232,7 +234,7 @@ export async function handlePrefixCommand(message: Message<true>, guildRow?: Awa
       if (action === "list") await message.reply(`Mode: **${guild.settings.channelPolicy.mode}** · Threads: **${guild.settings.channelPolicy.threadsEnabled ? "enabled" : "disabled"}**\n${guild.settings.channelPolicy.channelIds.map((id) => `<#${id}>`).join(", ") || "No locations configured."}`);
       else if (action === "mode") {
         const mode = args[1]?.toLowerCase();
-        if (mode !== "allowlist" && mode !== "denylist") throw new Error(`Usage: \`${configured.prefix}${name} mode allowlist|denylist\``);
+        if (mode !== "allowlist" && mode !== "denylist") throw notice(`Usage: \`${configured.prefix}${name} mode allowlist|denylist\``);
         guild.settings.channelPolicy.mode = mode;
         await saveSettings(guild, message.author.id, "settings.channel-policy");
         await message.reply(`Chat XP now uses **${mode}** mode.`);
@@ -242,12 +244,12 @@ export async function handlePrefixCommand(message: Message<true>, guildRow?: Awa
         await message.reply(`Chat XP in eligible threads is **${guild.settings.channelPolicy.threadsEnabled ? "enabled" : "disabled"}**.`);
       } else if (action === "add" || action === "remove") {
         const channel = message.mentions.channels.first();
-        if (!channel) throw new Error(`Usage: \`${configured.prefix}${name} ${action} #channel\``);
+        if (!channel) throw notice(`Usage: \`${configured.prefix}${name} ${action} #channel\``);
         guild.settings.channelPolicy.channelIds = guild.settings.channelPolicy.channelIds.filter((id) => id !== channel.id);
         if (action === "add") guild.settings.channelPolicy.channelIds.push(channel.id);
         await saveSettings(guild, message.author.id, "settings.channel-policy");
         await message.reply(`${channel} ${action === "add" ? "added to" : "removed from"} the ${guild.settings.channelPolicy.mode}.`);
-      } else throw new Error(`Usage: \`${configured.prefix}${name} list|mode|add|remove|threads\``);
+      } else throw notice(`Usage: \`${configured.prefix}${name} list|mode|add|remove|threads\``);
     } else if (command === "privacy") {
       const value = booleanArg(args[0]);
       const existing = await db.query.rankProfiles.findFirst({ where: eq(rankProfiles.userId, message.author.id) });
@@ -260,7 +262,7 @@ export async function handlePrefixCommand(message: Message<true>, guildRow?: Awa
     } else if (command === "colour") {
       const value = args[0]?.toLowerCase();
       const colour = !value || value === "reset" ? null : value.startsWith("#") ? value : `#${value}`;
-      if (colour && !/^#[0-9a-f]{6}$/i.test(colour)) throw new Error("Use a six-digit hex colour such as #f4f4f4");
+      if (colour && !/^#[0-9a-f]{6}$/i.test(colour)) throw notice("Use a six-digit hex colour, such as #d33c1c.");
       await db.insert(rankProfiles).values({ userId: message.author.id, colorMode: colour ? "custom" : "monochrome", color: colour }).onConflictDoUpdate({ target: rankProfiles.userId, set: { colorMode: colour ? "custom" : "monochrome", color: colour, updatedAt: new Date() } });
       await message.reply(colour ? `Rank-card colour set to **${colour}**.` : "Rank-card colour reset.");
     } else if (command === "background") {
@@ -273,14 +275,14 @@ export async function handlePrefixCommand(message: Message<true>, guildRow?: Awa
         await message.reply("Rank-card background deleted.");
       } else if (action === "set") {
         const image = message.attachments.first();
-        if (!image?.contentType?.startsWith("image/") || image.size > 5_000_000) throw new Error("Attach an image under 5 MB");
+        if (!image?.contentType?.startsWith("image/") || image.size > 5_000_000) throw notice("Attach an image under 5 MB.", "PNG, JPEG, GIF or WebP.");
         const response = await fetch(image.url);
-        if (!response.ok) throw new Error("Discord did not return the uploaded image");
+        if (!response.ok) throw notice("Discord did not accept that upload.", "Try the image again in a moment.");
         const key = await uploadBackground(message.author.id, new Uint8Array(await response.arrayBuffer()), image.contentType);
         if (profile?.backgroundKey) await deleteBackground(profile.backgroundKey).catch(() => undefined);
         await db.insert(rankProfiles).values({ userId: message.author.id, backgroundKey: key }).onConflictDoUpdate({ target: rankProfiles.userId, set: { backgroundKey: key, updatedAt: new Date() } });
         await message.reply("Rank-card background updated.");
-      } else throw new Error(`Usage: \`${configured.prefix}${name} set|view|delete\``);
+      } else throw notice(`Usage: \`${configured.prefix}${name} set|view|delete\``);
     } else if (command === "wrapped") {
       const year = String(new Date().getUTCFullYear());
       const rows = await db.select().from(xpPeriods).where(and(eq(xpPeriods.guildId, message.guildId), eq(xpPeriods.userId, message.author.id), sql`${xpPeriods.period} like ${`${year}-%`}`, sql`length(${xpPeriods.period}) = 7`)).orderBy(desc(xpPeriods.xp));
@@ -299,7 +301,19 @@ export async function handlePrefixCommand(message: Message<true>, guildRow?: Awa
       throw new Error(`Prefix handler missing for ${command}`);
     }
   } catch (error) {
-    await message.reply(`**Error:** ${error instanceof Error ? error.message : "Command failed"}`).catch(() => undefined);
+    /*
+      The prefix path has its own renderer because a prefix command replies with
+      an ordinary message rather than an interaction response. It follows the
+      same rule as the interaction handler: guidance is shown plainly, and a
+      real fault gets a reference while its message stays in the logs.
+    */
+    if (error instanceof UserNotice) {
+      await message.reply({ content: noticeText(error.message, error.hint), allowedMentions: { parse: [] } }).catch(() => undefined);
+    } else {
+      const reference = randomUUID().slice(0, 8).toUpperCase();
+      console.error("prefix_command_failure", { reference, command, guildId: message.guild?.id, userId: message.author.id, error });
+      await message.reply({ content: `Something went wrong on our side. Nothing was changed.\n-# Reference \`${reference}\``, allowedMentions: { parse: [] } }).catch(() => undefined);
+    }
   }
   return true;
 }

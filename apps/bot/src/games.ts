@@ -1,3 +1,4 @@
+import { notice } from "./replies";
 import { AttachmentBuilder, EmbedBuilder, escapeMarkdown, PermissionFlagsBits, type Client, type GuildTextBasedChannel, type Message } from "discord.js";
 import {
   activeVote,
@@ -69,12 +70,12 @@ export async function startGame(channel: GuildTextBasedChannel, type: "word" | "
     [PermissionFlagsBits.AttachFiles, "Attach Files"],
   ] as const;
   const missing = required.filter(([permission]) => !permissions?.has(permission)).map(([, label]) => label);
-  if (missing.length) throw new Error(`Inochi needs ${missing.join(", ")} in this channel. Update its channel permissions or add it again from the Inochi website.`);
+  if (missing.length) throw notice(`Inochi needs ${missing.join(", ")} in this channel. Update its channel permissions or add it again from the Inochi website.`);
 
   const guild = await getOrCreateGuild(db, channel.guild.id, channel.guild.name);
-  if (!guild.settings.enabled) throw new Error("XP is disabled in this server");
+  if (!guild.settings.enabled) throw notice("XP is turned off in this server.", "A manager can enable it from the dashboard.");
   const config = type === "word" ? guild.settings.games.wordRace : guild.settings.games.mathRace;
-  if (!config.enabled) throw new Error(`${type === "word" ? "Word" : "Math"} games are disabled in the dashboard`);
+  if (!config.enabled) throw notice(`${type === "word" ? "Word" : "Math"} games are disabled in the dashboard`);
   let answer: string;
   let display: string;
   let image: Buffer;

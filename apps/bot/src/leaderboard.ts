@@ -1,3 +1,4 @@
+import { notice } from "./replies";
 import { createHash } from "node:crypto";
 import { ActionRowBuilder, ButtonBuilder, ContainerBuilder, TextDisplayBuilder } from "@discordjs/builders";
 import { levelForXp, xpForLevel, type GuildSettings } from "@inochi/core";
@@ -63,12 +64,12 @@ export async function renderLeaderboard(guild: Guild, settings: GuildSettings, o
 export async function handleLeaderboardComponent(interaction: ButtonInteraction) {
   if (!interaction.customId.startsWith("leaderboard:")) return false;
   const [, ownerId, rawPage] = interaction.customId.split(":");
-  if (ownerId !== interaction.user.id) throw new Error("Only the member who opened this leaderboard can change pages");
-  if (!interaction.guild || !rawPage) throw new Error("This leaderboard is no longer available");
+  if (ownerId !== interaction.user.id) throw notice("Only the member who opened this leaderboard can change pages");
+  if (!interaction.guild || !rawPage) throw notice("This leaderboard is no longer available");
   const page = Number(rawPage);
-  if (!Number.isSafeInteger(page) || page < 1) throw new Error("Invalid leaderboard page");
+  if (!Number.isSafeInteger(page) || page < 1) throw notice("That leaderboard page is no longer available.", "Run /top again for a fresh board.");
   const guildRow = await getOrCreateGuild(db, interaction.guild.id, interaction.guild.name);
-  if (!guildRow.settings.enabled || !guildRow.settings.leaderboard.enabled) throw new Error("The leaderboard is disabled");
+  if (!guildRow.settings.enabled || !guildRow.settings.leaderboard.enabled) throw notice("The leaderboard is turned off in this server.", "A manager can enable it from the dashboard.");
   const rendered = await renderLeaderboard(interaction.guild, guildRow.settings, { page, interactiveUserId: ownerId });
   await interaction.update(rendered.payload);
   return true;
@@ -83,10 +84,10 @@ export async function persistentLeaderboardPayload(guild: Guild, settings: Guild
 
 export async function sendOrUpdatePersistentLeaderboard(client: Client, guild: Guild, settings: GuildSettings) {
   const intent = settings.leaderboard.persistent;
-  if (!settings.leaderboard.enabled || !intent.enabled || !intent.channelId) throw new Error("The persistent leaderboard is not enabled");
+  if (!settings.leaderboard.enabled || !intent.enabled || !intent.channelId) throw notice("The persistent leaderboard is not enabled");
   const channel = await client.channels.fetch(intent.channelId);
   if (!channel?.isTextBased() || channel.isDMBased() || !("send" in channel) || !("messages" in channel) || !("guildId" in channel) || channel.guildId !== guild.id) {
-    throw new Error("Persistent leaderboard channel is not writable in this server");
+    throw notice("Persistent leaderboard channel is not writable in this server");
   }
   const rendered = await persistentLeaderboardPayload(guild, settings);
   const status = await getPersistentLeaderboardStatus(db, guild.id);
@@ -120,10 +121,10 @@ async function renderClaim(client: Client, claim: PersistentLeaderboardClaim) {
     return;
   }
   if (!guildRow.settings.leaderboard.enabled || !intent.enabled || !intent.channelId || intent.channelId !== claim.channelId) {
-    throw new Error("Persistent leaderboard intent no longer matches its stored configuration");
+    throw notice("Persistent leaderboard intent no longer matches its stored configuration");
   }
   const channel = await client.channels.fetch(claim.channelId);
-  if (!channel?.isTextBased() || channel.isDMBased() || !("send" in channel) || !("messages" in channel) || !("guildId" in channel) || channel.guildId !== claim.guildId) throw new Error("Persistent leaderboard channel is not writable in this server");
+  if (!channel?.isTextBased() || channel.isDMBased() || !("send" in channel) || !("messages" in channel) || !("guildId" in channel) || channel.guildId !== claim.guildId) throw notice("Persistent leaderboard channel is not writable in this server");
   const rendered = await persistentLeaderboardPayload(guild, guildRow.settings);
   let message = claim.messageId ? await channel.messages.fetch(claim.messageId).catch((error) => {
     if (error instanceof DiscordAPIError && error.code === 10008) return null;

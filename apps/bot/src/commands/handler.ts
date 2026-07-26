@@ -39,40 +39,57 @@ import { recordAudit, sendGuildLog } from "../logging";
 import { handleImportComponent, showImportPanel } from "../imports";
 import { handleCoinflipComponent, startCoinflip } from "../coinflip";
 import { INOCHI_VERMILION, WARNING_KINCHA } from "../theme";
+import { failurePanel, notice, noticePanel, panelPayload, UserNotice } from "../replies";
 import { commandDetailComponents, commandOverviewComponents } from "./help";
 import { handleLeaderboardComponent, renderLeaderboard, sendOrUpdatePersistentLeaderboard } from "../leaderboard";
 
 async function settingsFor(interaction: Interaction) {
-  if (!interaction.guild) throw new Error("This command only works in a server");
+  if (!interaction.guild) throw notice("This command only works inside a server.");
   return getOrCreateGuild(db, interaction.guild.id, interaction.guild.name);
 }
 
+/*
+  A UserNotice is expected guidance and is shown as-is. Everything else is a
+  fault: the reader gets a reference and nothing else, because an internal
+  message can carry schema or infrastructure detail that should not reach a
+  Discord channel.
+
+  Note the deliberate absence of the old heuristic, which treated any plain
+  `new Error` without `code` or `cause` as safe to show verbatim. That is what
+  turned "Choose another member" into "**Error:** Choose another member", and it
+  would happily have surfaced an internal message that merely looked plain.
+*/
 async function replyError(interaction: Interaction, error: unknown) {
   if (!interaction.isRepliable()) return null;
-  const known = error instanceof Error && error.constructor === Error && !("code" in error) && !("cause" in error);
+  const isNotice = error instanceof UserNotice;
   const reference = randomUUID().slice(0, 8).toUpperCase();
-  const content = known ? `**Error:** ${error.message}` : `Something went wrong. Reference \`${reference}\`.`;
-  if (!known) console.error("interaction_failure", { reference, interactionId: interaction.id, type: interaction.type, guildId: interaction.guildId, userId: interaction.user.id, error });
+  const container = isNotice
+    ? noticePanel(error.message, error.hint, error.tone)
+    : failurePanel(reference);
+  if (!isNotice) console.error("interaction_failure", { reference, interactionId: interaction.id, type: interaction.type, guildId: interaction.guildId, userId: interaction.user.id, error });
+  const payload = panelPayload(container);
   try {
-    if (interaction.replied || ((interaction.isButton() || interaction.isAnySelectMenu() || interaction.isModalSubmit()) && interaction.deferred)) await interaction.followUp({ content, ephemeral: true });
-    else if (interaction.deferred) await interaction.editReply({ content, embeds: [], components: [], files: [] });
-    else await interaction.reply({ content, ephemeral: true });
+    if (interaction.replied || ((interaction.isButton() || interaction.isAnySelectMenu() || interaction.isModalSubmit()) && interaction.deferred)) await interaction.followUp(payload);
+    // A deferred reply was created without the V2 flag, so it cannot be edited
+    // into a container; it has to be cleared and answered as a follow-up.
+    else if (interaction.deferred) { await interaction.editReply({ content: "", embeds: [], components: [], files: [] }).catch(() => undefined); await interaction.followUp(payload); }
+    else await interaction.reply(payload);
   } catch (replyFailure) {
     console.error("interaction_error_response_failure", { reference, interactionId: interaction.id, replyFailure });
   }
-  return known ? null : reference;
+  return isNotice ? null : reference;
 }
 
 type RankInteraction = ChatInputCommandInteraction | UserContextMenuCommandInteraction;
 
 async function showRank(interaction: RankInteraction, forcedUserId?: string) {
   const guild = await settingsFor(interaction);
-  if (!guild.settings.enabled) throw new Error("XP is disabled in this server");
-  if (!guild.settings.rankCard.enabled) throw new Error("Rank cards are disabled in this server");
+  if (!guild.settings.enabled) throw notice("XP is turned off in this server.", "A manager can enable it from the dashboard.");
+  if (!guild.settings.rankCard.enabled) throw notice("Rank cards are turned off in this server.", "A manager can enable them from the dashboard.");
   const user = forcedUserId ? await interaction.client.users.fetch(forcedUserId) : interaction.isChatInputCommand() ? interaction.options.getUser("member") ?? interaction.user : interaction.user;
   await interaction.deferReply({ ephemeral: guild.settings.rankCard.ephemeral || (interaction.isChatInputCommand() && interaction.options.getBoolean("hidden") === true) });
   const rank = await getRank(db, interaction.guildId!, user.id);
-  if (!rank || rank.xp <= 0) throw new Error(`${user.displayName} has not earned XP yet`);
+  if (!rank || rank.xp <= 0) throw notice(`${user.displayName} has not earned XP yet`);
   const progress = progressForXp(rank.xp, guild.settings);
   if (interaction.isChatInputCommand() && interaction.options.getBoolean("text_mode") === true) {
     await interaction.editReply(`**${user.displayName}** · Rank **#${rank.rank}** · Level **${progress.level}** · **${rank.xp.toLocaleString()} XP** · ${Math.round(progress.progress * 100)}% to the next level`);
@@ -100,8 +117,8 @@ async function showRank(interaction: RankInteraction, forcedUserId?: string) {
 
 async function showTop(interaction: RankInteraction, forcedUserId?: string) {
   const guild = await settingsFor(interaction);
-  if (!guild.settings.enabled) throw new Error("XP is disabled in this server");
-  if (!guild.settings.leaderboard.enabled) throw new Error("The leaderboard is disabled");
+  if (!guild.settings.enabled) throw notice("XP is turned off in this server.", "A manager can enable it from the dashboard.");
+  if (!guild.settings.leaderboard.enabled) throw notice("The leaderboard is turned off in this server.", "A manager can enable it from the dashboard.");
   const page = interaction.isChatInputCommand() ? interaction.options.getInteger("page") ?? 1 : 1;
   const targetId = forcedUserId ?? (interaction.isChatInputCommand() ? interaction.options.getUser("member")?.id : undefined);
   const rendered = await renderLeaderboard(interaction.guild!, guild.settings, { page, highlightedUserId: targetId, interactiveUserId: interaction.user.id });
@@ -169,7 +186,7 @@ export async function handleInteraction(interaction: Interaction) {
     }
     const command = interaction.commandName;
     const managerCommands = new Set(["winner", "joinrole", "blacklist", "reset", "refresh", "addxp", "clear", "config", "rewardrole", "multiplier", "word", "maths", "xpchannel", "diagnose", "import", "setup", "leaderboard"]);
-    if (managerCommands.has(command) && !interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) throw new Error("Manage Server permission is required");
+    if (managerCommands.has(command) && !interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) throw notice("You need the Manage Server permission for that.");
     void sendGuildLog(interaction.client, interaction.guildId!, "commandUsage", "Command used", `<@${interaction.user.id}> used \`/${command}\` in <#${interaction.channelId}>.`).catch(console.error);
     if (managerCommands.has(command)) void recordAudit(interaction.guildId!, interaction.user.id, "command.admin", { command, channelId: interaction.channelId }).catch(console.error);
     if (command === "rank") return showRank(interaction);
@@ -178,7 +195,7 @@ export async function handleInteraction(interaction: Interaction) {
       const guild = await settingsFor(interaction);
       const requested = interaction.options.getString("command");
       const payload = requested ? commandDetailComponents(requested, guild.settings.commands.prefix) : commandOverviewComponents(guild.settings.commands.prefix);
-      if (!payload) throw new Error(`Unknown command: ${requested}`);
+      if (!payload) throw notice(`Unknown command: ${requested}`);
       return interaction.reply(payload);
     }
     if (command === "leaderboard") {
@@ -191,7 +208,7 @@ export async function handleInteraction(interaction: Interaction) {
       }
       if (subcommand === "refresh") {
         const status = await getPersistentLeaderboardStatus(db, interaction.guildId!);
-        if (!status?.enabled || !status.channelId) throw new Error("Configure the persistent leaderboard first");
+        if (!status?.enabled || !status.channelId) throw notice("Set up the persistent leaderboard first.", "Choose its channel in the dashboard, then try again.");
         await interaction.deferReply({ ephemeral: true });
         const message = await sendOrUpdatePersistentLeaderboard(interaction.client, interaction.guild!, guild.settings);
         return interaction.editReply({ content: `Leaderboard refreshed: [open message](https://discord.com/channels/${interaction.guildId}/${message.channelId}/${message.id})` });
@@ -202,7 +219,7 @@ export async function handleInteraction(interaction: Interaction) {
         return interaction.reply({ content: "Persistent leaderboard disabled. Its message will be removed shortly.", ephemeral: true });
       }
       const channel = interaction.options.getChannel("channel", true);
-      if (!("guildId" in channel) || channel.guildId !== interaction.guildId || !channel.isTextBased()) throw new Error("Choose a text channel in this server");
+      if (!("guildId" in channel) || channel.guildId !== interaction.guildId || !channel.isTextBased()) throw notice("Choose a text channel in this server.");
       const rows = interaction.options.getInteger("rows") ?? guild.settings.leaderboard.persistent.rows;
       await updateSettings(interaction, (settings) => {
         settings.leaderboard.enabled = true;
@@ -239,7 +256,7 @@ export async function handleInteraction(interaction: Interaction) {
     }
     if (command === "colour") {
       const value = interaction.options.getString("colour");
-      if (value && !/^#[0-9a-f]{6}$/i.test(value)) throw new Error("Use a six-digit hex colour such as #f4f4f4");
+      if (value && !/^#[0-9a-f]{6}$/i.test(value)) throw notice("Use a six-digit hex colour, such as #d33c1c.");
       await db.insert(rankProfiles).values({ userId: interaction.user.id, colorMode: value ? "custom" : "monochrome", color: value })
         .onConflictDoUpdate({ target: rankProfiles.userId, set: { colorMode: value ? "custom" : "monochrome", color: value, updatedAt: new Date() } });
       return interaction.reply({ content: value ? `Rank-card colour set to **${value}**.` : "Rank-card colour reset.", ephemeral: true });
@@ -254,10 +271,10 @@ export async function handleInteraction(interaction: Interaction) {
         return interaction.reply({ content: "Rank-card background deleted.", ephemeral: true });
       }
       const image = interaction.options.getAttachment("image", true);
-      if (!image.contentType?.startsWith("image/") || image.size > 5_000_000) throw new Error("Upload an image under 5 MB");
+      if (!image.contentType?.startsWith("image/") || image.size > 5_000_000) throw notice("Upload an image under 5 MB.", "PNG, JPEG, GIF or WebP.");
       await interaction.deferReply({ ephemeral: true });
       const response = await fetch(image.url);
-      if (!response.ok) throw new Error("Discord did not return the uploaded image");
+      if (!response.ok) throw notice("Discord did not accept that upload.", "Try the image again in a moment.");
       const key = await uploadBackground(interaction.user.id, new Uint8Array(await response.arrayBuffer()), image.contentType);
       if (profile?.backgroundKey) await deleteBackground(profile.backgroundKey).catch(() => undefined);
       await db.insert(rankProfiles).values({ userId: interaction.user.id, backgroundKey: key }).onConflictDoUpdate({ target: rankProfiles.userId, set: { backgroundKey: key, updatedAt: new Date() } });
@@ -302,7 +319,7 @@ export async function handleInteraction(interaction: Interaction) {
       return interaction.reply({ content: `${channel} ${subcommand === "add" ? "added to" : "removed from"} the ${guild.settings.channelPolicy.mode}.`, ephemeral: true });
     }
     if (command === "word" || command === "maths") {
-      if (!interaction.channel?.isTextBased() || interaction.channel.isDMBased()) throw new Error("Choose a server text channel");
+      if (!interaction.channel?.isTextBased() || interaction.channel.isDMBased()) throw notice("Run this in a server text channel.", "It does not work in DMs or voice channels.");
       const type = command === "word" ? "word" : "math";
       await interaction.deferReply({ ephemeral: true });
       await startGame(interaction.channel, type);
@@ -312,12 +329,12 @@ export async function handleInteraction(interaction: Interaction) {
       const guild = await settingsFor(interaction);
       const action = command === "winner" ? "winner" : interaction.options.getString("action") ?? "show";
       const canManage = (interaction.member as GuildMember).permissions.has(PermissionFlagsBits.ManageGuild);
-      if (["enable", "disable", "reset", "winner"].includes(action) && !canManage) throw new Error("Manage Server is required for that action");
+      if (["enable", "disable", "reset", "winner"].includes(action) && !canManage) throw notice("You need the Manage Server permission for that action.");
       if (action === "enable" || action === "disable") {
         await updateSettings(interaction, (settings) => { settings.community.weeklyXp = action === "enable"; }, "settings.weekly");
         return interaction.reply({ content: `Weekly XP is now **${action}d**.`, ephemeral: true });
       }
-      if (!guild.settings.community.weeklyXp) throw new Error("Weekly XP is disabled");
+      if (!guild.settings.community.weeklyXp) throw notice("Weekly XP is turned off in this server.", "A manager can enable it from the dashboard.");
       const winners = await db.select().from(members).where(and(eq(members.guildId, interaction.guildId!), sql`${members.weeklyXp} > 0`)).orderBy(desc(members.weeklyXp)).limit(command === "winner" ? 3 : 10);
       if (action === "reset") {
         await db.update(members).set({ weeklyXp: 0 }).where(eq(members.guildId, interaction.guildId!));
@@ -337,7 +354,7 @@ export async function handleInteraction(interaction: Interaction) {
       const role = interaction.options.getRole("role");
       const guild = await settingsFor(interaction);
       if (action === "show") return interaction.reply({ content: guild.settings.community.blacklistRoleIds.map((id) => `<@&${id}>`).join(", ") || "No roles are blacklisted.", ephemeral: true });
-      if (!role) throw new Error("Choose a role to add or remove");
+      if (!role) throw notice("Choose a role, and whether to add or remove it.");
       await updateSettings(interaction, (settings) => {
         settings.community.blacklistRoleIds = settings.community.blacklistRoleIds.filter((id) => id !== role.id);
         if (action === "add") settings.community.blacklistRoleIds.push(role.id);
@@ -354,7 +371,7 @@ export async function handleInteraction(interaction: Interaction) {
     if (command === "refresh") {
       const scope = interaction.options.getString("scope", true);
       if (scope === "points") {
-        if (interaction.options.getString("confirmation") !== "RESET") throw new Error("Type RESET in confirmation to clear every member's points");
+        if (interaction.options.getString("confirmation") !== "RESET") throw notice("Type RESET in the confirmation field to clear every member's points.", "This cannot be undone.");
         await db.update(members).set({ xp: 0, weeklyXp: 0, cooldownUntil: null }).where(eq(members.guildId, interaction.guildId!));
         await markPersistentLeaderboardDirty(db, interaction.guildId!);
         await db.insert(auditLogs).values({ guildId: interaction.guildId!, actorId: interaction.user.id, action: "xp.reset-all" });
@@ -405,7 +422,7 @@ export async function handleInteraction(interaction: Interaction) {
     }
     if (command === "sync") {
       const user = interaction.options.getUser("member") ?? interaction.user;
-      if (user.id !== interaction.user.id && !(interaction.member as GuildMember).permissions.has(PermissionFlagsBits.ManageGuild)) throw new Error("Manage Server is required to sync another member");
+      if (user.id !== interaction.user.id && !(interaction.member as GuildMember).permissions.has(PermissionFlagsBits.ManageGuild)) throw notice("You need the Manage Server permission to sync someone else.");
       const member = await interaction.guild!.members.fetch(user.id);
       const changes = await syncMember(member);
       return interaction.reply({ content: `Roles synchronized. Added ${changes.add.length}, removed ${changes.remove.length}.`, ephemeral: true });

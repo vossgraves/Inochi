@@ -1,3 +1,4 @@
+import { notice } from "./replies";
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -112,9 +113,9 @@ async function createSession(input: {
     const active = await tx.query.importSessions.findFirst({
       where: and(eq(importSessions.guildId, input.guildId), eq(importSessions.channelId, input.channelId), or(eq(importSessions.source, input.source), eq(importSessions.sourceBotId, input.sourceBotId)), sql`${importSessions.status} in ('collecting', 'review')`, gt(importSessions.expiresAt, new Date())),
     });
-    if (active) throw new Error("An import from this source is already active in this channel");
+    if (active) throw notice("An import from this source is already running in this channel.", "Stop it before starting another.");
     const [session] = await tx.insert(importSessions).values(input).returning();
-    if (!session) throw new Error("Could not create the import session");
+    if (!session) throw new Error("Import session insert returned no row");
     await insertEntries(tx, session.id, records);
     return session;
   });
@@ -168,16 +169,16 @@ export async function showImportPanel(interaction: ChatInputCommandInteraction) 
 }
 
 export async function showImportPanelMessage(message: Message<true>, value?: string) {
-  if (value && !isImportProviderId(value)) throw new Error(`Source must be one of: ${importProviderIds.join(", ")}`);
+  if (value && !isImportProviderId(value)) throw notice(`Source must be one of: ${importProviderIds.join(", ")}`);
   await message.reply({ components: [panel({ source: value as ImportProviderId | undefined })], flags: MessageFlags.IsComponentsV2 });
 }
 
 async function sessionFor(interaction: ImportComponentInteraction, id: string) {
-  if (!interaction.guildId) throw new Error("This import only works in a server");
+  if (!interaction.guildId) throw notice("This import only works in a server");
   const session = await db.query.importSessions.findFirst({ where: and(eq(importSessions.id, id), eq(importSessions.guildId, interaction.guildId)) });
-  if (!session) throw new Error("This import session no longer exists");
-  if (session.expiresAt <= new Date()) throw new Error("This import session expired");
-  if (session.createdBy !== interaction.user.id && !interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) throw new Error("Only the initiator or a server manager can control this import");
+  if (!session) throw notice("This import session no longer exists");
+  if (session.expiresAt <= new Date()) throw notice("This import session expired");
+  if (session.createdBy !== interaction.user.id && !interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) throw notice("Only the initiator or a server manager can control this import");
   return session;
 }
 
@@ -208,7 +209,7 @@ async function beginImport(interaction: ImportComponentInteraction, source: Impo
           await insertEntries(tx, session.id, result.records);
           const pageState = { ...expectedPageState(source, pages, result.expectedPages), complete: result.complete };
           const [updated] = await tx.update(importSessions).set({ strategy: "web", capturedPages: pages, warnings: result.warnings, expectedPages: pageState, updatedAt: new Date() }).where(and(eq(importSessions.id, session.id), eq(importSessions.status, "collecting"))).returning();
-          if (!updated) throw new Error("Import session changed while loading the public leaderboard");
+          if (!updated) throw notice("This import session changed while the leaderboard was loading.", "Run /import again to restart it.");
           return updated;
         });
         details = `Loaded **${result.records.length.toLocaleString()}** records from ${provider.label}'s public leaderboard.${result.warnings.length ? `\n${result.warnings.map((warning) => `- ${warning}`).join("\n")}` : ""}`;
@@ -230,33 +231,33 @@ async function beginImport(interaction: ImportComponentInteraction, source: Impo
 
 export async function handleImportComponent(interaction: ImportComponentInteraction) {
   if (!interaction.customId.startsWith("import:")) return false;
-  if (!interaction.inGuild() || !interaction.guild || !interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) throw new Error("Manage Server permission is required");
+  if (!interaction.inGuild() || !interaction.guild || !interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) throw notice("You need the Manage Server permission for that.");
   const [, action, id, extra] = interaction.customId.split(":");
   await interaction.deferUpdate();
   try {
   if (action === "source" && interaction.isStringSelectMenu()) {
     const source = interaction.values[0];
-    if (!source || !isImportProviderId(source)) throw new Error("Choose a supported import source");
+    if (!source || !isImportProviderId(source)) throw notice("Choose one of the supported import sources.");
     await interaction.editReply({ components: [panel({ source, details: `Select a premium/custom bot below, or let Inochi detect ${importProviders[source].label}'s official bot.` })] });
     return true;
   }
   if (action === "bot" && interaction.isUserSelectMenu()) {
-    if (!id || !isImportProviderId(id)) throw new Error("Choose an import source first");
+    if (!id || !isImportProviderId(id)) throw notice("Choose an import source first.", "Pick the bot you are migrating from, then start.");
     const userId = interaction.values[0];
     const member = userId ? await interaction.guild.members.fetch(userId).catch(() => null) : null;
-    if (!member?.user.bot) throw new Error("Select a bot that is installed in this server");
+    if (!member?.user.bot) throw notice("Select a bot that is installed in this server");
     await interaction.editReply({ components: [panel({ source: id, customBotId: member.id, details: `<@${member.id}> is not a verified ${importProviders[id].label} identity. Confirm only if this is the installed premium/custom bot you intend to trust for this import.` })] });
     return true;
   }
   if (action === "startcustom") {
-    if (!id || !isImportProviderId(id) || !extra) throw new Error("Choose an import source and custom bot first");
+    if (!id || !isImportProviderId(id) || !extra) throw notice("Choose an import source and the source bot first.");
     const member = await interaction.guild.members.fetch(extra).catch(() => null);
-    if (!member?.user.bot) throw new Error("The selected custom bot is no longer installed in this server");
+    if (!member?.user.bot) throw notice("The selected custom bot is no longer installed in this server");
     await beginImport(interaction, id, member.id);
     return true;
   }
   if (action === "start") {
-    if (!id || !isImportProviderId(id)) throw new Error("Choose an import source first");
+    if (!id || !isImportProviderId(id)) throw notice("Choose an import source first.", "Pick the bot you are migrating from, then start.");
     const member = await knownProviderBot(interaction, id);
     if (!member) {
       await interaction.editReply({ components: [panel({ source: id, chooseBot: true, details: `${importProviders[id].label} is not installed in this server under a known official identity. Select its installed premium/custom bot below to continue.` })] });
@@ -265,11 +266,11 @@ export async function handleImportComponent(interaction: ImportComponentInteract
     await beginImport(interaction, id, member.id);
     return true;
   }
-  if (!id) throw new Error("Invalid import control");
+  if (!id) throw notice("This import panel is no longer active.", "Run /import again to start a new session.");
   const session = await sessionFor(interaction, id);
   if (action === "preset") {
     const preset = isImportProviderId(session.source) ? sourcePreset(session.source) : undefined;
-    if (!preset || !session.settingsProposal) throw new Error("This source does not have a verified settings preset");
+    if (!preset || !session.settingsProposal) throw notice("This source does not have a verified settings preset");
     const selectedSettings = extra === "on" ? [] : [...PRESET_SETTINGS];
     const prepared = await prepareImportSession(db, { sessionId: session.id, selectedSettings });
     await interaction.editReply({ components: [panel({ session: prepared, details: `${levelingPresets[preset].label} progression settings will ${selectedSettings.length ? "be applied with" : "not be changed by"} this import.` })] });
@@ -290,7 +291,7 @@ export async function handleImportComponent(interaction: ImportComponentInteract
       const [row] = await tx.update(importSessions).set({ status: "cancelled", updatedAt }).where(and(eq(importSessions.id, session.id), sql`${importSessions.status} in ('collecting', 'review')`, gt(importSessions.expiresAt, updatedAt))).returning();
       return row;
     });
-    if (!stopped) throw new Error("This import session is no longer active");
+    if (!stopped) throw notice("This import session is no longer active");
     await interaction.editReply({ components: [panel({ session: stopped, details: "Import stopped." })] });
     return true;
   }
@@ -315,14 +316,14 @@ export async function handleImportComponent(interaction: ImportComponentInteract
     return true;
   }
   if (action === "apply" && !interaction.customId.endsWith(":confirm")) {
-    if (session.status !== "review" || !total?.value) throw new Error("Review a non-empty import before applying it");
+    if (session.status !== "review" || !total?.value) throw notice("Review a non-empty import before applying it");
     const preset = isImportProviderId(session.source) ? sourcePreset(session.source) : undefined;
     const appliesPreset = preset && PRESET_SETTINGS.every((key) => session.selectedSettings.includes(key));
     await interaction.editReply({ components: [panel({ session, details: `This will use **${xpModeLabels[session.xpApplyMode]}** for up to **${total.value.toLocaleString()}** records${appliesPreset ? ` and apply the **${levelingPresets[preset].label}** progression preset` : " without changing progression settings"}. A pre-import safety backup will be created. Select **Confirm apply** to continue.`, confirm: true })] });
     return true;
   }
   if (action === "apply") {
-    if (session.status !== "review" || !total?.value) throw new Error("Review a non-empty import before applying it");
+    if (session.status !== "review" || !total?.value) throw notice("Review a non-empty import before applying it");
     const guild = await getOrCreateGuild(db, interaction.guildId, interaction.guild.name);
     const excludedBots = new Set([interaction.client.user.id, session.sourceBotId, ...Object.values(importProviders).flatMap((provider) => [...provider.botUserIds])].filter(Boolean));
     const guildMemberIds = await currentGuildMemberIds(interaction.guild);
@@ -336,7 +337,7 @@ export async function handleImportComponent(interaction: ImportComponentInteract
     if (!result.idempotent && roleSyncIds.length) void synchronizeImportedRoles(interaction, roleSyncIds).catch(console.error);
     return true;
   }
-    throw new Error("Unknown import action");
+    throw notice("Unknown import action");
   } catch (error) {
     if (id && /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(id)) {
       await db.update(importSessions).set({ lastError: (error instanceof Error ? error.message : String(error)).slice(0, 1_000), updatedAt: new Date() }).where(eq(importSessions.id, id)).catch(() => undefined);
