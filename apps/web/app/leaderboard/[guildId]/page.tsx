@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { levelForXp, xpForLevel } from "@inochi/core";
 import { db, getGuild, getLeaderboard, inArray, rankProfiles } from "@inochi/database";
 import { discordGuilds, getSession, requireGuildManager } from "../../../lib/auth";
+import { ThemeToggle } from "../../../components/theme-toggle";
 
 export default async function Leaderboard({ params }: { params: Promise<{ guildId: string }> }) {
   const { guildId } = await params;
@@ -18,12 +19,77 @@ export default async function Leaderboard({ params }: { params: Promise<{ guildI
   const privateIds = guild.settings.leaderboard.visibility === "public" && rows.length
     ? new Set((await db.select().from(rankProfiles).where(inArray(rankProfiles.userId, rows.map((row) => row.userId)))).filter((profile) => profile.leaderboardPrivate).map((profile) => profile.userId))
     : new Set<string>();
-  return <main className="shell leaderboard-shell">
-    <Link className="text-link" href="/"><ArrowLeft size={14}/>Inochi</Link>
-    <div className="page-heading"><div><div className="eyebrow mono">Public progression / {guildId}</div><h1>{guild.name ?? "Server ranks"}</h1><p>{rows.length} ranked member{rows.length === 1 ? "" : "s"} shown</p></div></div>
-    {rows.length ? <section className="leaderboard-list">
-      <header className="leaderboard-head"><span>Rank</span><span>Member</span><span>Level / Total XP</span></header>
-      {rows.map((member, index) => <div className="leaderboard-row" key={member.userId}><span className="leaderboard-position">{String(index + 1).padStart(2, "0")}</span><span className="leaderboard-member">{privateIds.has(member.userId) ? "Private member" : member.userId}</span><strong className="leaderboard-value">Level {levelForXp(member.xp, guild.settings)}<small>{member.xp.toLocaleString()} XP</small></strong></div>)}
-    </section> : <div className="empty-state"><strong>No ranked members yet.</strong><p>The first eligible message will start this leaderboard.</p></div>}
-  </main>;
+
+  return (
+    <div className="min-h-dvh">
+      <header className="border-b border-border">
+        <div className="mx-auto flex h-16 w-full max-w-[54rem] items-center justify-between gap-4 px-5">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-2 font-mono text-xs tracking-wider uppercase transition-colors hover:text-primary-text"
+          >
+            <ArrowLeft className="size-4" />
+            Inochi
+          </Link>
+          <ThemeToggle />
+        </div>
+      </header>
+
+      <main className="mx-auto w-full max-w-[54rem] px-5 pt-14 pb-24">
+        <p className="font-mono text-[0.7rem] tracking-[0.2em] text-muted-foreground uppercase tnum">
+          Public progression / {guildId}
+        </p>
+        <h1 className="mt-5 text-4xl font-bold tracking-tight break-words sm:text-5xl">
+          {guild.name ?? "Server ranks"}
+        </h1>
+        <p className="mt-3 font-mono text-sm text-muted-foreground tnum">
+          {rows.length} ranked member{rows.length === 1 ? "" : "s"} shown
+        </p>
+
+        {rows.length ? (
+          <div className="mt-12 overflow-x-auto">
+            <table className="w-full min-w-[30rem] border-collapse text-left">
+              <thead>
+                <tr className="border-b border-border font-mono text-[0.65rem] tracking-wider text-muted-foreground uppercase">
+                  <th scope="col" className="w-16 py-3 font-normal">Rank</th>
+                  <th scope="col" className="py-3 font-normal">Member</th>
+                  <th scope="col" className="w-24 py-3 text-right font-normal">Level</th>
+                  <th scope="col" className="w-36 py-3 text-right font-normal">Total XP</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((member, index) => (
+                  <tr key={member.userId} className="border-b border-border/60">
+                    <td className="py-4 font-mono text-sm text-primary-text tnum">
+                      {String(index + 1).padStart(2, "0")}
+                    </td>
+                    <td className="py-4 font-mono text-sm break-all">
+                      {privateIds.has(member.userId) ? (
+                        <span className="text-muted-foreground italic">Private member</span>
+                      ) : (
+                        member.userId
+                      )}
+                    </td>
+                    <td className="py-4 text-right font-mono text-sm tnum">
+                      {levelForXp(member.xp, guild.settings)}
+                    </td>
+                    <td className="py-4 text-right font-mono text-sm text-muted-foreground tnum">
+                      {member.xp.toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="mt-12 border border-dashed border-border-strong px-6 py-16 text-center">
+            <strong className="text-lg font-semibold">No ranked members yet.</strong>
+            <p className="mt-2 leading-relaxed text-muted-foreground">
+              The first eligible message will start this leaderboard.
+            </p>
+          </div>
+        )}
+      </main>
+    </div>
+  );
 }
