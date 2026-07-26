@@ -24,7 +24,7 @@ test("provider registry exposes stable IDs, source values, and only verified pre
     mee6: { sourceValue: "xp", knownPreset: "mee6", strategies: ["web", "message"] },
     arcane: { sourceValue: "xp", knownPreset: undefined, strategies: ["message"] },
     probot: { sourceValue: "text_xp", knownPreset: undefined, strategies: ["message"] },
-    amari: { sourceValue: "xp", knownPreset: "amari", strategies: ["message"] },
+    amari: { sourceValue: "xp", knownPreset: "amari", strategies: ["web", "message"] },
     lurkr: { sourceValue: "xp", knownPreset: "lurkr", strategies: ["web", "message"] },
     carlbot: { sourceValue: "level", knownPreset: undefined, strategies: ["message"] },
     tatsu: { sourceValue: "server_score", knownPreset: undefined, strategies: ["message"] },
