@@ -1,4 +1,5 @@
-import { EmbedBuilder, type Client } from "discord.js";
+import { panel } from "./replies";
+import { MessageFlags, type Client } from "discord.js";
 import { and, auditLogs, db, eq, getGuild, isNull, lt } from "@inochi/database";
 import { ERROR_RED, INFO_MUTED, INOCHI_VERMILION, SUCCESS_MOSS, WARNING_KINCHA } from "./theme";
 import { icon, type InochiEmoji } from "./emojis";
@@ -24,7 +25,8 @@ export async function sendGuildLog(client: Client, guildId: string, category: Lo
   const channel = guild?.channels.cache.get(row.settings.logging.channelId);
   if (!channel?.isTextBased() || channel.isDMBased() || !channel.isSendable()) return false;
   const presentation = logPresentation[category];
-  await channel.send({ embeds: [new EmbedBuilder().setColor(presentation.color).setTitle(`${icon(client, presentation.emoji)} ${title}`).setDescription(description).setTimestamp()], allowedMentions: { parse: [] } });
+  const container = panel(`${icon(client, presentation.emoji)} ${title}`, [description, `-# <t:${Math.floor(Date.now() / 1000)}:f>`], { color: presentation.color, dividers: true });
+  await channel.send({ components: [container], flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } });
   return true;
 }
 

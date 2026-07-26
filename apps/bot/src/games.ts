@@ -1,5 +1,5 @@
-import { notice } from "./replies";
-import { AttachmentBuilder, EmbedBuilder, escapeMarkdown, PermissionFlagsBits, type Client, type GuildTextBasedChannel, type Message } from "discord.js";
+import { notice, panel } from "./replies";
+import { AttachmentBuilder, escapeMarkdown, MediaGalleryBuilder, MediaGalleryItemBuilder, MessageFlags, PermissionFlagsBits, SeparatorBuilder, SeparatorSpacingSize, TextDisplayBuilder, type Client, type GuildTextBasedChannel, type Message } from "discord.js";
 import {
   activeVote,
   and,
@@ -96,11 +96,28 @@ export async function startGame(channel: GuildTextBasedChannel, type: "word" | "
     prompt: { display }, placeXp: config.placeXp, expiresAt,
   });
   const attachment = new AttachmentBuilder(image, { name: `${type}-race.png` });
+  /*
+    The prompt image is a real media component rather than an embed image, so
+    the deadline can sit underneath it instead of in a footer, and the round
+    reads top to bottom: what to do, the prompt, then how long is left.
+  */
+  const container = panel(type === "word" ? "Type the word" : "Solve the equation", [
+    `${placeText(config.placeXp)}\n\nSend the answer in chat. Each member can place once.`,
+  ]);
+  container.addMediaGalleryComponents(
+    new MediaGalleryBuilder().addItems(
+      new MediaGalleryItemBuilder().setURL(`attachment://${type}-race.png`),
+    ),
+  );
+  container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
+  container.addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(`-# Ends <t:${Math.floor(expiresAt.getTime() / 1000)}:R>`),
+  );
   const sent = await channel.send({
     files: [attachment],
-    embeds: [new EmbedBuilder().setColor(INOCHI_VERMILION).setTitle(type === "word" ? "Type the word" : "Solve the equation")
-      .setDescription(`${placeText(config.placeXp)}\n\nSend the answer in chat. Each member can place once.`)
-      .setImage(`attachment://${type}-race.png`).setFooter({ text: `Ends in ${config.answerSeconds} seconds` })],
+    components: [container],
+    flags: MessageFlags.IsComponentsV2,
+    allowedMentions: { parse: [] },
   }).catch(async (error) => {
     await db.update(gameRounds).set({ completedAt: new Date() }).where(eq(gameRounds.id, round.id));
     throw error;

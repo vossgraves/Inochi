@@ -17,7 +17,7 @@ import {
   updatePersistentLeaderboardMessage,
   type PersistentLeaderboardClaim,
 } from "@inochi/database";
-import { ButtonStyle, DiscordAPIError, MessageFlags, type ButtonInteraction, type Client, type Guild, type MessageCreateOptions } from "discord.js";
+import { ButtonStyle, DiscordAPIError, MessageFlags, SeparatorBuilder, SeparatorSpacingSize, type ButtonInteraction, type Client, type Guild, type MessageCreateOptions } from "discord.js";
 import { INOCHI_VERMILION } from "./theme";
 
 export interface LeaderboardRenderOptions {
@@ -50,12 +50,30 @@ export async function renderLeaderboard(guild: Guild, settings: GuildSettings, o
     new ButtonBuilder().setStyle(ButtonStyle.Secondary).setCustomId(`leaderboard:${options.interactiveUserId}:${page + 1}`).setLabel("Next").setDisabled(rows.length < limit),
   );
   buttons.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(url).setLabel("Open web leaderboard"));
-  const updated = options.updatedAt
-    ? `\n### Updated <t:${Math.floor(options.updatedAt.getTime() / 1000)}:R>`
-    : "";
-  const container = new ContainerBuilder().setAccentColor(INOCHI_VERMILION)
-    .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${guild.name} leaderboard${page > 1 ? ` · page ${page}` : ""}\n${body}${updated}`))
-    .addActionRowComponents(buttons);
+  /*
+    Title, rows, timestamp and controls are separate components rather than one
+    markdown string, which is what the container is for. The rows keep their own
+    block so a rule can sit between them and the freshness line instead of a
+    bare "### Updated" heading doing that job.
+
+    Component budget: title, rows, optional separator, optional timestamp, and
+    one action row. Five at most against a limit of forty, so paging cannot
+    overflow it.
+  */
+  const container = new ContainerBuilder().setAccentColor(INOCHI_VERMILION);
+  container.addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(`## ${guild.name} leaderboard${page > 1 ? ` · page ${page}` : ""}`),
+  );
+  container.addTextDisplayComponents(new TextDisplayBuilder().setContent(body));
+  if (options.updatedAt) {
+    container.addSeparatorComponents(
+      new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
+    );
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(`-# Updated <t:${Math.floor(options.updatedAt.getTime() / 1000)}:R>`),
+    );
+  }
+  container.addActionRowComponents(buttons);
   const payload = { components: [container], flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } } satisfies MessageCreateOptions;
   const contentHash = createHash("sha256").update(JSON.stringify(container.toJSON())).digest("hex");
   return { payload, contentHash, rows };

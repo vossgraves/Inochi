@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { notice, noticeText, UserNotice } from "./replies";
-import { EmbedBuilder, PermissionFlagsBits, type GuildMember, type Message } from "discord.js";
+import { notice, noticeText, panel, UserNotice } from "./replies";
+import { MessageFlags, PermissionFlagsBits, type GuildMember, type Message } from "discord.js";
 import { levelForXp, parseGuildSettings, progressForXp, xpForLevel } from "@inochi/core";
 import {
   activeVote,
@@ -294,7 +294,11 @@ export async function handlePrefixCommand(message: Message<true>, guildRow?: Awa
       const missingRewards = guild.settings.rewards.filter((reward) => !message.guild.roles.cache.has(reward.roleId)).length;
       const unmanageableRewards = me ? guild.settings.rewards.filter((reward) => { const role = message.guild.roles.cache.get(reward.roleId); return role && role.position >= me.roles.highest.position; }).length : guild.settings.rewards.length;
       const checks = [["XP system", guild.settings.enabled], ["Send messages", me?.permissions.has(PermissionFlagsBits.SendMessages) ?? false], ["Attach files", me?.permissions.has(PermissionFlagsBits.AttachFiles) ?? false], ["Manage roles", me?.permissions.has(PermissionFlagsBits.ManageRoles) ?? false], ["Reward references", missingRewards === 0], ["Reward hierarchy", unmanageableRewards === 0]] as const;
-      await message.reply({ embeds: [new EmbedBuilder().setColor(checks.every(([, ok]) => ok) ? INOCHI_VERMILION : WARNING_KINCHA).setTitle("Inochi diagnostics").setDescription(checks.map(([label, ok]) => `${ok ? "✓" : "✕"} ${label}`).join("\n"))] });
+      await message.reply({
+        components: [panel("Inochi diagnostics", checks.map(([label, ok]) => `${ok ? "✓" : "✕"} ${label}`).join("\n"), { color: checks.every(([, ok]) => ok) ? INOCHI_VERMILION : WARNING_KINCHA })],
+        flags: MessageFlags.IsComponentsV2,
+        allowedMentions: { parse: [] },
+      });
     } else if (command === "import") {
       await showImportPanelMessage(message, args[0]?.toLowerCase());
     } else {

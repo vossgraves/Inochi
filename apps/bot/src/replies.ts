@@ -73,6 +73,42 @@ export function failurePanel(reference: string) {
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# Reference \`${reference}\``));
 }
 
+/*
+  The general panel, replacing EmbedBuilder across the bot.
+
+  An embed is a fixed shape: title, description, fields, colour. A container is
+  a list of components, so a panel is composed rather than filled in. `body`
+  entries are separated by a rule when `dividers` is set, which is what gives
+  these more structure than the single markdown blob an embed forced.
+*/
+export function panel(
+  title: string,
+  body: string | string[],
+  options: { color?: number; dividers?: boolean } = {},
+) {
+  const container = new ContainerBuilder().setAccentColor(options.color ?? INOCHI_VERMILION);
+  container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${title}`));
+  const blocks = (Array.isArray(body) ? body : [body]).filter((block) => block.length > 0);
+  for (const [index, block] of blocks.entries()) {
+    if (options.dividers && index > 0) {
+      container.addSeparatorComponents(
+        new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
+      );
+    }
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(block));
+  }
+  return container;
+}
+
+/**
+ * Renders label/value pairs as a definition list. Embeds laid these out in
+ * columns via addFields; a container has no field concept, so they become
+ * bolded labels with the value beneath.
+ */
+export function detailBlock(entries: Array<[string, string]>) {
+  return entries.map(([label, value]) => `**${label}**\n${value}`).join("\n\n");
+}
+
 /** A Components V2 panel must not also carry `content`. */
 export function panelPayload(container: ContainerBuilder, ephemeral = true) {
   return {

@@ -1,4 +1,5 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, EmbedBuilder, Events, PermissionFlagsBits, type Client, type Guild, type TextChannel } from "discord.js";
+import { detailBlock, panel } from "./replies";
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, Events, MessageFlags, PermissionFlagsBits, type Client, type Guild, type TextChannel } from "discord.js";
 import { and, db, eq, getOrCreateGuild, guilds, isNull } from "@inochi/database";
 import { icon } from "./emojis";
 import { INOCHI_VERMILION } from "./theme";
@@ -16,17 +17,20 @@ async function welcome(guild: Guild) {
   const named = guild.channels.cache.filter((channel) => channel.type === ChannelType.GuildText && ["setup", "bot-commands", "bots"].includes(channel.name.toLowerCase())).first() as TextChannel | undefined;
   const destination = writable(guild, guild.systemChannel) ? guild.systemChannel : writable(guild, named) ? named : null;
   const setupUrl = `${process.env.APP_URL!.replace(/\/$/, "")}/dashboard/${guild.id}/setup`;
-  const embed = new EmbedBuilder().setColor(INOCHI_VERMILION).setTitle(`${icon(guild.client, "levelup")} Inochi is ready`).setDescription("XP starts paused so nothing changes before you choose how progression should work. The guided setup covers channels, leveling speed, logs, backups, and a final permission check.").addFields({ name: "Start", value: "Open the setup wizard below, or run `/setup` later." }, { name: "Verify", value: "Run `/diagnose` after setup to check permissions and references." });
-  const components = [new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(setupUrl).setLabel("Open setup wizard"))];
+  const container = panel(`${icon(guild.client, "levelup")} Inochi is ready`, [
+    "XP starts paused so nothing changes before you choose how progression should work. The guided setup covers channels, leveling speed, logs, backups, and a final permission check.",
+    detailBlock([["Start", "Open the setup wizard below, or run `/setup` later."], ["Verify", "Run `/diagnose` after setup to check permissions and references."]]),
+  ], { dividers: true });
+  container.addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(setupUrl).setLabel("Open setup wizard")));
   let sent;
   let channelId: string | null = null;
   if (destination) {
-    sent = await destination.send({ embeds: [embed], components, allowedMentions: { parse: [] } }).catch(() => null);
+    sent = await destination.send({ components: [container], flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } }).catch(() => null);
     channelId = destination.id;
   }
   if (!sent) {
     const owner = await guild.fetchOwner().catch(() => null);
-    sent = await owner?.send({ embeds: [embed], components, allowedMentions: { parse: [] } }).catch(() => null);
+    sent = await owner?.send({ components: [container], flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } }).catch(() => null);
     channelId = null;
   }
   if (sent) await db.update(guilds).set({ welcomeSentAt: new Date(), welcomeChannelId: channelId, welcomeMessageId: sent.id }).where(eq(guilds.id, guild.id));

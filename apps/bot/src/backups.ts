@@ -1,5 +1,6 @@
+import { detailBlock, panel } from "./replies";
 import { gzipSync } from "node:zlib";
-import { AttachmentBuilder, EmbedBuilder, PermissionFlagsBits, type Client, type GuildBasedChannel } from "discord.js";
+import { AttachmentBuilder, MessageFlags, PermissionFlagsBits, type Client, type GuildBasedChannel } from "discord.js";
 import { parseGuildSettings } from "@inochi/core";
 import { and, backupChecksum, backupSnapshots, buildGuildBackup, db, desc, eq, guilds, isNull, lt, sql } from "@inochi/database";
 import type { GuildSettings } from "@inochi/core";
@@ -48,10 +49,17 @@ async function deliverPending(client: Client, guildId: string, settings: GuildSe
   for (const snapshot of pending) {
     const payload = snapshot.payload as { members?: unknown[] };
     const compressed = gzipSync(JSON.stringify(snapshot.payload));
-    const embed = new EmbedBuilder().setColor(INOCHI_VERMILION).setTitle(`${icon(client, "backup")} Scheduled Inochi backup`).setDescription(`Full backup created for **${(payload.members?.length ?? 0).toLocaleString()} members**.\nChecksum: \`${snapshot.checksum.slice(0, 16)}…\``).setTimestamp(snapshot.createdAt);
     const files = compressed.length <= 8_000_000 ? [new AttachmentBuilder(compressed, { name: `inochi-${guildId}-${snapshot.createdAt.toISOString().slice(0, 10)}.json.gz` })] : [];
-    if (!files.length) embed.addFields({ name: "Attachment", value: "Compressed backup exceeds 8 MB. Download it from the manager dashboard." });
-    const sent = await channel.send({ embeds: [embed], files, allowedMentions: { parse: [] } }).then(() => true).catch(() => false);
+    const blocks = [
+      detailBlock([
+        ["Members", (payload.members?.length ?? 0).toLocaleString()],
+        ["Checksum", `\`${snapshot.checksum.slice(0, 16)}\``],
+        ["Created", `<t:${Math.floor(snapshot.createdAt.getTime() / 1000)}:f>`],
+      ]),
+    ];
+    if (!files.length) blocks.push("Compressed backup exceeds 8 MB. Download it from the manager dashboard.");
+    const container = panel(`${icon(client, "backup")} Scheduled Inochi backup`, blocks, { dividers: true });
+    const sent = await channel.send({ components: [container], files, flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } }).then(() => true).catch(() => false);
     await db.update(backupSnapshots).set(sent ? { deliveredAt: new Date(), deliveryError: null } : { deliveryError: "Discord delivery failed" }).where(eq(backupSnapshots.id, snapshot.id));
   }
 }
