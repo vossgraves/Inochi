@@ -1,19 +1,39 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { CSSProperties } from "react";
 import type { GuildSettings } from "@inochi/core";
 import { OperationStatus, type OperationState } from "./operation-status";
+import { Input } from "@/components/ui/input";
+import { Slider } from "@/components/ui/slider";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 
 type RankCardSettings = GuildSettings["rankCard"];
 
-export function RankCardEditor({ guildId, value, onChange }: { guildId: string; value: RankCardSettings; onChange: (value: RankCardSettings) => void }) {
+const fieldLabel = "font-mono text-[0.65rem] tracking-wider text-muted-foreground uppercase";
+
+export function RankCardEditor({
+  guildId,
+  value,
+  onChange,
+}: {
+  guildId: string;
+  value: RankCardSettings;
+  onChange: (value: RankCardSettings) => void;
+}) {
   const [preview, setPreview] = useState<string>();
   const [previewState, setPreviewState] = useState<OperationState>("pending");
   const [uploadStatus, setUploadStatus] = useState("");
   const previewRef = useRef<string | undefined>(undefined);
   const signature = JSON.stringify(value);
 
+  // Debounced live preview against the real renderer. Unchanged.
   useEffect(() => {
     const controller = new AbortController();
     setPreviewState("pending");
@@ -53,15 +73,130 @@ export function RankCardEditor({ guildId, value, onChange }: { guildId: string; 
     setUploadStatus("Background ready to save");
   };
 
-  return <div className="rank-editor">
-    <div className={`rank-rendered-preview preview-${previewState}`}>{preview && <img src={preview} alt="Generated rank-card preview" />}{previewState === "pending" && <OperationStatus state="pending">Rendering your rank card...</OperationStatus>}{previewState === "error" && <OperationStatus state="error">Preview unavailable. Check the settings and try again.</OperationStatus>}</div>
-    <div className="rank-editor-grid">
-      <label><span>Accent and progress</span><div className="color-control"><input type="color" value={value.accentColor} onChange={(event) => onChange({ ...value, accentColor: event.target.value })} /><input key={value.accentColor} defaultValue={value.accentColor} pattern="#[0-9a-fA-F]{6}" onBlur={(event) => { if (/^#[0-9a-f]{6}$/i.test(event.target.value)) onChange({ ...value, accentColor: event.target.value }); else event.target.value = value.accentColor; }} /></div></label>
-      <label><span>Background image</span><input type="file" accept="image/png,image/jpeg,image/gif,image/webp" onChange={(event) => void upload(event.target.files?.[0])} /><small aria-live="polite">{uploadStatus || (value.backgroundKey ? "Custom background selected" : "PNG, JPEG, GIF, or WebP under 5 MB")}</small>{value.backgroundKey && <button className="text-button" type="button" onClick={() => onChange({ ...value, backgroundKey: null })}>Remove background</button>}</label>
-      <label><span>Background darkness: {Math.round(value.backgroundOverlay * 100)}%</span><input type="range" min="0" max="0.95" step="0.01" value={value.backgroundOverlay} style={{ "--range-progress": `${value.backgroundOverlay / 0.95 * 100}%` } as CSSProperties} onChange={(event) => onChange({ ...value, backgroundOverlay: Number(event.target.value) })} /></label>
-      <label><span>Avatar shape</span><select value={value.avatarShape} onChange={(event) => onChange({ ...value, avatarShape: event.target.value as RankCardSettings["avatarShape"] })}><option value="rounded">Rounded</option><option value="circle">Circle</option><option value="square">Square</option></select></label>
-      <label><span>Card surface</span><select value={value.surface} onChange={(event) => onChange({ ...value, surface: event.target.value as RankCardSettings["surface"] })}><option value="technical">Technical grid</option><option value="clean">Clean</option></select></label>
-      <label><span>Progress style</span><select value={value.progressStyle} onChange={(event) => onChange({ ...value, progressStyle: event.target.value as RankCardSettings["progressStyle"] })}><option value="glow">Glow</option><option value="solid">Solid</option></select></label>
+  return (
+    <div className="grid gap-5">
+      <div
+        className={cn(
+          "relative grid min-h-40 place-items-center overflow-hidden border border-border bg-background",
+          previewState === "pending" && "opacity-60",
+        )}
+      >
+        {preview && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={preview} alt="Generated rank-card preview" className="block h-auto w-full" />
+        )}
+        {previewState === "pending" && (
+          <div className="absolute inset-0 grid place-items-center">
+            <OperationStatus state="pending">Rendering your rank card...</OperationStatus>
+          </div>
+        )}
+        {previewState === "error" && (
+          <OperationStatus state="error">Preview unavailable. Check the settings and try again.</OperationStatus>
+        )}
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid content-start gap-2 border border-border p-4">
+          <span className={fieldLabel}>Accent and progress</span>
+          <div className="grid grid-cols-[3rem_1fr] gap-2">
+            <Input
+              type="color"
+              aria-label="Accent colour"
+              value={value.accentColor}
+              onChange={(event) => onChange({ ...value, accentColor: event.target.value })}
+            />
+            <Input
+              key={value.accentColor}
+              aria-label="Accent colour hex value"
+              defaultValue={value.accentColor}
+              pattern="#[0-9a-fA-F]{6}"
+              className="font-mono"
+              onBlur={(event) => {
+                if (/^#[0-9a-f]{6}$/i.test(event.target.value)) onChange({ ...value, accentColor: event.target.value });
+                else event.target.value = value.accentColor;
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="grid content-start gap-2 border border-border p-4">
+          <span className={fieldLabel}>Background image</span>
+          <Input
+            type="file"
+            accept="image/png,image/jpeg,image/gif,image/webp"
+            onChange={(event) => void upload(event.target.files?.[0])}
+          />
+          <small aria-live="polite" className="text-xs leading-relaxed text-muted-foreground">
+            {uploadStatus || (value.backgroundKey ? "Custom background selected" : "PNG, JPEG, GIF, or WebP under 5 MB")}
+          </small>
+          {value.backgroundKey && (
+            <button
+              type="button"
+              className="justify-self-start text-xs text-primary-text underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              onClick={() => onChange({ ...value, backgroundKey: null })}
+            >
+              Remove background
+            </button>
+          )}
+        </div>
+
+        <div className="grid content-start gap-3 border border-border p-4">
+          <span className={fieldLabel}>
+            Background darkness: <span className="tnum">{Math.round(value.backgroundOverlay * 100)}%</span>
+          </span>
+          <Slider
+            aria-label="Background darkness"
+            min={0}
+            max={0.95}
+            step={0.01}
+            value={[value.backgroundOverlay]}
+            onValueChange={([next]) => onChange({ ...value, backgroundOverlay: next ?? 0 })}
+          />
+        </div>
+
+        <div className="grid content-start gap-2 border border-border p-4">
+          <span className={fieldLabel}>Avatar shape</span>
+          <Select
+            value={value.avatarShape}
+            onValueChange={(next) => onChange({ ...value, avatarShape: next as RankCardSettings["avatarShape"] })}
+          >
+            <SelectTrigger aria-label="Avatar shape"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="rounded">Rounded</SelectItem>
+              <SelectItem value="circle">Circle</SelectItem>
+              <SelectItem value="square">Square</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="grid content-start gap-2 border border-border p-4">
+          <span className={fieldLabel}>Card surface</span>
+          <Select
+            value={value.surface}
+            onValueChange={(next) => onChange({ ...value, surface: next as RankCardSettings["surface"] })}
+          >
+            <SelectTrigger aria-label="Card surface"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="technical">Technical grid</SelectItem>
+              <SelectItem value="clean">Clean</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="grid content-start gap-2 border border-border p-4">
+          <span className={fieldLabel}>Progress style</span>
+          <Select
+            value={value.progressStyle}
+            onValueChange={(next) => onChange({ ...value, progressStyle: next as RankCardSettings["progressStyle"] })}
+          >
+            <SelectTrigger aria-label="Progress style"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="glow">Glow</SelectItem>
+              <SelectItem value="solid">Solid</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
     </div>
-  </div>;
+  );
 }

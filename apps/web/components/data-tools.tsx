@@ -2,7 +2,23 @@
 
 import { useState } from "react";
 import { OperationStatus, type OperationState } from "./operation-status";
-import { AccessibleDialog } from "./accessible-dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 type ImportPreview = {
   file: File;
@@ -10,6 +26,8 @@ type ImportPreview = {
   token: string;
   counts: { found: number; unique: number; duplicates: number; truncated: number };
 };
+
+const fieldLabel = "font-mono text-[0.65rem] tracking-wider text-muted-foreground uppercase";
 
 export function DataTools({ guildId }: { guildId: string }) {
   const [source, setSource] = useState("legacy-json");
@@ -128,23 +146,182 @@ export function DataTools({ guildId }: { guildId: string }) {
     setKeys((current) => current.filter((key) => key.id !== id));
     updateStatus("API key revoked.", "success");
   };
-  return <div className="data-tools">
-    <div className="field-label">File migration<small>Legacy ID/XP JSON, Lurkr JSON, or ID/XP CSV. Matching members are replaced; others remain.</small></div>
-    <div className="data-tool-controls">
-      <select value={source} disabled={importBusy} onChange={(event) => { setSource(event.target.value); setImportPreview(null); updateStatus("Choose an official export file.", "idle"); }}><option value="legacy-json">Legacy ID/XP JSON</option><option value="lurkr">Lurkr official JSON</option><option value="csv">CSV</option></select>
-      <input type="file" disabled={importBusy} accept={source === "csv" ? ".csv,.txt" : ".json"} onClick={(event) => { event.currentTarget.value = ""; }} onChange={(event) => void upload(event.target.files?.[0])} />
-      <OperationStatus state={statusState}>{status}</OperationStatus>
-      <a className="button" href={`/api/guilds/${guildId}/data`}>Download PostgreSQL export</a>
-      <button type="button" onClick={createBackup}>Create full Inochi backup</button>
-      <label className="field-label">Restore full backup<input type="file" accept=".json" onChange={(event) => restoreBackup(event.target.files?.[0])} /></label>
-      <button type="button" onClick={createApiKey}>Create read-only API key</button>
-      <button type="button" onClick={() => void loadAudit()}>Load recent audit history</button>
-      <button type="button" onClick={() => void loadKeys()}>Manage API keys</button>
-      {apiKey && <input readOnly value={apiKey} onFocus={(event) => event.currentTarget.select()} />}
-      {audit.length > 0 && <div className="audit-list">{audit.map((event) => <div key={event.id}><strong>{event.action}</strong><span><code>{event.actorId}</code> · {new Date(event.createdAt).toLocaleString()}</span></div>)}</div>}
-      {keys.length > 0 && <div className="audit-list">{keys.map((key) => <div key={key.id}><strong>{key.name}</strong><span>Owner <code>{key.userId}</code> · expires {new Date(key.expiresAt).toLocaleDateString()}</span><button type="button" className="danger-button" onClick={() => void revokeKey(key.id)}>Revoke</button></div>)}</div>}
+
+  const restoreBusy = statusState === "pending";
+
+  return (
+    <div className="grid gap-6 sm:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] sm:gap-8">
+      <div>
+        <span className="text-sm font-medium">File migration</span>
+        <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+          Legacy ID/XP JSON, Lurkr JSON, or ID/XP CSV. Matching members are replaced; others remain.
+        </p>
+      </div>
+
+      <div className="grid gap-3">
+        <Select
+          value={source}
+          disabled={importBusy}
+          onValueChange={(value) => { setSource(value); setImportPreview(null); updateStatus("Choose an official export file.", "idle"); }}
+        >
+          <SelectTrigger aria-label="Import source"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="legacy-json">Legacy ID/XP JSON</SelectItem>
+            <SelectItem value="lurkr">Lurkr official JSON</SelectItem>
+            <SelectItem value="csv">CSV</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Input
+          type="file"
+          aria-label="Import file"
+          disabled={importBusy}
+          accept={source === "csv" ? ".csv,.txt" : ".json"}
+          onClick={(event) => { event.currentTarget.value = ""; }}
+          onChange={(event) => void upload(event.target.files?.[0])}
+        />
+
+        <OperationStatus state={statusState}>{status}</OperationStatus>
+
+        <Button asChild variant="outline" size="sm">
+          <a href={`/api/guilds/${guildId}/data`}>Download PostgreSQL export</a>
+        </Button>
+        <Button type="button" variant="outline" size="sm" onClick={createBackup}>Create full Inochi backup</Button>
+
+        <div className="grid gap-2">
+          <span className={fieldLabel}>Restore full backup</span>
+          <Input type="file" aria-label="Backup file" accept=".json" onChange={(event) => restoreBackup(event.target.files?.[0])} />
+        </div>
+
+        <Button type="button" variant="outline" size="sm" onClick={createApiKey}>Create read-only API key</Button>
+        <Button type="button" variant="outline" size="sm" onClick={() => void loadAudit()}>Load recent audit history</Button>
+        <Button type="button" variant="outline" size="sm" onClick={() => void loadKeys()}>Manage API keys</Button>
+
+        {apiKey && (
+          <Input readOnly value={apiKey} aria-label="New API key" className="font-mono text-xs" onFocus={(event) => event.currentTarget.select()} />
+        )}
+
+        {audit.length > 0 && (
+          <ul className="max-h-80 overflow-auto border border-border">
+            {audit.map((event) => (
+              <li key={event.id} className="border-b border-border px-3 py-2.5 last:border-b-0">
+                <strong className="block text-sm font-medium">{event.action}</strong>
+                <span className="font-mono text-[0.65rem] text-muted-foreground">
+                  {event.actorId} / {new Date(event.createdAt).toLocaleString()}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {keys.length > 0 && (
+          <ul className="max-h-80 overflow-auto border border-border">
+            {keys.map((key) => (
+              <li key={key.id} className="flex items-center gap-3 border-b border-border px-3 py-2.5 last:border-b-0">
+                <span className="min-w-0 flex-1">
+                  <strong className="block truncate text-sm font-medium">{key.name}</strong>
+                  <span className="font-mono text-[0.65rem] text-muted-foreground">
+                    Owner {key.userId} / expires {new Date(key.expiresAt).toLocaleDateString()}
+                  </span>
+                </span>
+                <Button type="button" variant="destructive" size="sm" onClick={() => void revokeKey(key.id)}>Revoke</Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/*
+        Radix handles the focus trap, scroll lock, Escape and aria wiring that
+        the hand-rolled AccessibleDialog did manually. Both of these are
+        destructive confirmations, so the typed keyword gate is unchanged.
+      */}
+      <Dialog open={Boolean(importPreview)} onOpenChange={(next) => { if (!next && !importBusy) setImportPreview(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Review member changes</DialogTitle>
+            <DialogDescription>
+              No records have been applied yet. Matching members will have their XP replaced; all
+              other members remain unchanged.
+            </DialogDescription>
+          </DialogHeader>
+          {importPreview && (
+            <>
+              <dl className="grid grid-cols-2 border border-border">
+                {[
+                  ["Valid rows", importPreview.counts.found],
+                  ["Members to apply", importPreview.counts.unique],
+                  ["Duplicates ignored", importPreview.counts.duplicates],
+                  ["Over limit ignored", importPreview.counts.truncated],
+                ].map(([label, count], index) => (
+                  <div key={label} className={`px-4 py-3 ${index % 2 === 0 ? "border-r border-border" : ""} ${index < 2 ? "border-b border-border" : ""}`}>
+                    <dt className={fieldLabel}>{label}</dt>
+                    <dd className="mt-1 font-mono text-base tnum">{Number(count).toLocaleString()}</dd>
+                  </div>
+                ))}
+              </dl>
+              <div className="grid gap-2">
+                <label className={fieldLabel} htmlFor="import-confirmation">Type IMPORT to continue</label>
+                <Input
+                  id="import-confirmation"
+                  value={importConfirmation}
+                  onChange={(event) => setImportConfirmation(event.target.value)}
+                  autoComplete="off"
+                  disabled={importBusy}
+                  className="font-mono"
+                />
+              </div>
+            </>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={importBusy} onClick={() => setImportPreview(null)}>Cancel</Button>
+            <Button type="button" variant="destructive" disabled={importBusy || importConfirmation !== "IMPORT"} onClick={() => void applyImport()}>Apply XP import</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(restore)} onOpenChange={(next) => { if (!next && !restoreBusy) setRestore(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Review the recovery plan</DialogTitle>
+            <DialogDescription>
+              {restore && (
+                <>
+                  Backup from <strong>{new Date(restore.createdAt).toLocaleString()}</strong> with{" "}
+                  <strong>{restore.members.toLocaleString()} members</strong>. A pre-restore snapshot
+                  will be created automatically.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <label className={fieldLabel} htmlFor="restore-mode">Restore mode</label>
+            <Select value={restoreMode} disabled={restoreBusy} onValueChange={(value) => setRestoreMode(value as typeof restoreMode)}>
+              <SelectTrigger id="restore-mode"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="merge">Merge members and settings</SelectItem>
+                <SelectItem value="settings">Settings only</SelectItem>
+                <SelectItem value="replace">Replace all leveling data</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-2">
+            <label className={fieldLabel} htmlFor="restore-confirmation">Type RESTORE to continue</label>
+            <Input
+              id="restore-confirmation"
+              value={confirmation}
+              disabled={restoreBusy}
+              onChange={(event) => setConfirmation(event.target.value)}
+              autoComplete="off"
+              className="font-mono"
+            />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={restoreBusy} onClick={() => setRestore(null)}>Cancel</Button>
+            <Button type="button" variant="destructive" disabled={restoreBusy || confirmation !== "RESTORE"} onClick={confirmRestore}>Restore backup</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
-    {importPreview && <AccessibleDialog titleId="import-title" descriptionId="import-description" busy={importBusy} onClose={() => setImportPreview(null)}><span className="eyebrow mono">Import preview</span><h3 id="import-title">Review member changes</h3><p id="import-description">No records have been applied yet. Matching members will have their XP replaced; all other members remain unchanged.</p><div className="import-counts"><div><span>Valid rows</span><strong>{importPreview.counts.found.toLocaleString()}</strong></div><div><span>Members to apply</span><strong>{importPreview.counts.unique.toLocaleString()}</strong></div><div><span>Duplicates ignored</span><strong>{importPreview.counts.duplicates.toLocaleString()}</strong></div><div><span>Over limit ignored</span><strong>{importPreview.counts.truncated.toLocaleString()}</strong></div></div><label>Type IMPORT to continue<input value={importConfirmation} onChange={(event) => setImportConfirmation(event.target.value)} autoComplete="off" disabled={importBusy} /></label><div className="modal-actions"><button type="button" disabled={importBusy} onClick={() => setImportPreview(null)}>Cancel</button><button type="button" className="danger-button" disabled={importBusy || importConfirmation !== "IMPORT"} onClick={() => void applyImport()}>Apply XP import</button></div></AccessibleDialog>}
-    {restore && <AccessibleDialog titleId="restore-title" descriptionId="restore-description" busy={statusState === "pending"} onClose={() => setRestore(null)}><span className="eyebrow mono">Safety restore</span><h3 id="restore-title">Review the recovery plan</h3><p id="restore-description">Backup from <strong>{new Date(restore.createdAt).toLocaleString()}</strong> with <strong>{restore.members.toLocaleString()} members</strong>. A pre-restore snapshot will be created automatically.</p><label>Restore mode<select value={restoreMode} disabled={statusState === "pending"} onChange={(event) => setRestoreMode(event.target.value as typeof restoreMode)}><option value="merge">Merge members and settings</option><option value="settings">Settings only</option><option value="replace">Replace all leveling data</option></select></label><label>Type RESTORE to continue<input value={confirmation} disabled={statusState === "pending"} onChange={(event) => setConfirmation(event.target.value)} autoComplete="off" /></label><div className="modal-actions"><button type="button" disabled={statusState === "pending"} onClick={() => setRestore(null)}>Cancel</button><button type="button" className="danger-button" disabled={statusState === "pending" || confirmation !== "RESTORE"} onClick={confirmRestore}>Restore backup</button></div></AccessibleDialog>}
-  </div>;
+  );
 }
