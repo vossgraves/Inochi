@@ -211,17 +211,35 @@
     JavaScript the hidden state never applies at all, so a failed bundle shows
     plain visible content instead of an empty page.
   */
+  /*
+    The hidden state carries its own escape hatch. `reveal-failsafe` holds the
+    element hidden, then forces it visible at 2s whether or not JavaScript ever
+    reaches it, so the worst case is a late reveal rather than content that
+    never appears. A blank dashboard shipped once already because the observer
+    silently skipped elements that streamed in after it ran.
+  */
   .js .reveal {
-    opacity: 0;
+    animation: reveal-failsafe 2s step-end forwards;
     transform: translateY(12px);
   }
 
   .js .reveal[data-revealed="true"] {
+    animation: none;
     opacity: 1;
     transform: none;
     transition:
       opacity 320ms var(--ease-ink),
       transform 320ms var(--ease-ink);
+  }
+
+  @keyframes reveal-failsafe {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
   }
 }
 
