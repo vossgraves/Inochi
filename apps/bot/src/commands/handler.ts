@@ -204,13 +204,14 @@ export async function handleInteraction(interaction: Interaction) {
       const channel = interaction.options.getChannel("channel", true);
       if (!("guildId" in channel) || channel.guildId !== interaction.guildId || !channel.isTextBased()) throw new Error("Choose a text channel in this server");
       const rows = interaction.options.getInteger("rows") ?? guild.settings.leaderboard.persistent.rows;
-      await updateSettings(interaction, (settings) => {
+      // Defer first — this closes the race window before we write to the DB.
+      await interaction.deferReply({ ephemeral: true });
+      const newSettings = await updateSettings(interaction, (settings) => {
         settings.leaderboard.enabled = true;
         settings.leaderboard.persistent = { enabled: true, channelId: channel.id, rows };
       }, "settings.persistent-leaderboard");
       await configurePersistentLeaderboard(db, { guildId: interaction.guildId!, channelId: channel.id });
-      await interaction.deferReply({ ephemeral: true });
-      const message = await sendOrUpdatePersistentLeaderboard(interaction.client, interaction.guild!, guild.settings);
+      const message = await sendOrUpdatePersistentLeaderboard(interaction.client, interaction.guild!, newSettings);
       return interaction.editReply({ content: `Persistent leaderboard posted in ${channel} with **${rows}** rows: [open message](https://discord.com/channels/${interaction.guildId}/${message.channelId}/${message.id})` });
     }
     if (command === "diagnose") {

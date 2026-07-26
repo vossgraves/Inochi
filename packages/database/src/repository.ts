@@ -211,21 +211,43 @@ export async function completePersistentLeaderboard(db: Database, claim: Persist
   return row ?? null;
 }
 
-export async function updatePersistentLeaderboardMessage(db: Database, guildId: string, input: { channelId: string; messageId: string; contentHash: string; renderedAt?: Date }) {
+export async function updatePersistentLeaderboardMessage(db: Database, guildId: string, claim: PersistentLeaderboardClaim, input: { channelId: string; messageId: string; contentHash: string; renderedAt?: Date }) {
   const renderedAt = input.renderedAt ?? new Date();
   const [row] = await db.update(persistentLeaderboards).set({
     channelId: input.channelId,
     messageId: input.messageId,
     contentHash: input.contentHash,
-    dirty: false,
+    dirty: sql`${persistentLeaderboards.dueAt} > ${claim.dueAt}`,
     leaseUntil: null,
     lastRenderedAt: renderedAt,
     failureCount: 0,
     lastError: null,
     lastFailedAt: null,
     updatedAt: renderedAt,
-  }).where(eq(persistentLeaderboards.guildId, guildId)).returning();
+  }).where(and(eq(persistentLeaderboards.guildId, guildId), eq(persistentLeaderboards.leaseUntil, claim.leaseUntil))).returning();
   return row ?? null;
+}
+
+export async function claimPersistentLeaderboardNow(db: Database, guildId: string, options: { leaseMs?: number; now?: Date } = {}) {
+  const now = options.now ?? new Date();
+  const leaseUntil = new Date(now.getTime() + (options.leaseMs ?? 60_000));
+  // Upsert to ensure a row exists, then claim it exclusively
+  await db.insert(persistentLeaderboards).values({ guildId, channelId: "", dueAt: now }).onConflictDoNothing();
+  const [row] = await db.update(persistentLeaderboards).set({ leaseUntil, updatedAt: now }).where(and(
+    eq(persistentLeaderboards.guildId, guildId),
+    or(isNull(persistentLeaderboards.leaseUntil), lt(persistentLeaderboards.leaseUntil, now)),
+  )).returning();
+  if (!row) return null;
+  return {
+    guildId: row.guildId,
+    channelId: row.channelId,
+    messageId: row.messageId,
+    enabled: row.enabled,
+    contentHash: row.contentHash,
+    failureCount: row.failureCount,
+    dueAt: row.dueAt,
+    leaseUntil: row.leaseUntil!,
+  } satisfies PersistentLeaderboardClaim;
 }
 
 export async function failPersistentLeaderboard(db: Database, claim: PersistentLeaderboardClaim, error: unknown, options: { now?: Date; retryAt?: Date } = {}) {
