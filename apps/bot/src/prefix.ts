@@ -86,7 +86,10 @@ export async function handlePrefixCommand(message: Message<true>, guildRow?: Awa
       if (!guild.settings.rankCard.enabled) throw notice("Rank cards are turned off in this server.", "A manager can enable them from the dashboard.");
       const target = message.mentions.users.first() ?? message.author;
       const rank = await getRank(db, message.guildId, target.id);
-      if (!rank || rank.xp <= 0) throw notice(`${target.displayName} has not earned XP yet`);
+      if (!rank || rank.xp <= 0) throw notice(
+        target.id === message.author.id ? "You have not earned any XP yet." : `${target.displayName} has not earned any XP yet.`,
+        "Send a message in a channel where XP is enabled, then try again.",
+      );
       const progress = progressForXp(rank.xp, guild.settings);
       await message.reply(`**${target.displayName}** · Rank **#${rank.rank}** · Level **${progress.level}** · **${rank.xp.toLocaleString()} XP** · ${Math.round(progress.progress * 100)}% to next level`);
     } else if (command === "top") {

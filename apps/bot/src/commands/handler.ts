@@ -39,7 +39,7 @@ import { recordAudit, sendGuildLog } from "../logging";
 import { handleImportComponent, showImportPanel } from "../imports";
 import { handleCoinflipComponent, startCoinflip } from "../coinflip";
 import { INOCHI_VERMILION, WARNING_KINCHA } from "../theme";
-import { detailBlock, failurePanel, notice, noticePanel, panel, panelPayload, UserNotice } from "../replies";
+import { detailBlock, failurePanel, notice, noticePanel, noticeText, panel, panelPayload, UserNotice } from "../replies";
 import { commandDetailComponents, commandOverviewComponents } from "./help";
 import { handleLeaderboardComponent, renderLeaderboard, sendOrUpdatePersistentLeaderboard } from "../leaderboard";
 
@@ -68,11 +68,24 @@ async function replyError(interaction: Interaction, error: unknown) {
     : failurePanel(reference);
   if (!isNotice) console.error("interaction_failure", { reference, interactionId: interaction.id, type: interaction.type, guildId: interaction.guildId, userId: interaction.user.id, error });
   const payload = panelPayload(container);
+  /*
+    A deferred reply is already showing "Inochi is thinking", and only editing
+    it clears that. An earlier version tried to blank it with an empty
+    editReply before sending a follow-up; Discord rejects a message with no
+    content, embeds, components or files, the catch swallowed it, and the
+    command sat spinning forever. /rank on a member with no XP hit this on
+    every invocation.
+
+    The deferred response was created without the Components V2 flag, which
+    cannot be added on edit, so this path answers in plain text. Fresh replies
+    still get the panel.
+  */
+  const text = isNotice
+    ? noticeText(error.message, error.hint)
+    : `Something went wrong on our side. Nothing was changed.\n-# Reference \`${reference}\``;
   try {
     if (interaction.replied || ((interaction.isButton() || interaction.isAnySelectMenu() || interaction.isModalSubmit()) && interaction.deferred)) await interaction.followUp(payload);
-    // A deferred reply was created without the V2 flag, so it cannot be edited
-    // into a container; it has to be cleared and answered as a follow-up.
-    else if (interaction.deferred) { await interaction.editReply({ content: "", embeds: [], components: [], files: [] }).catch(() => undefined); await interaction.followUp(payload); }
+    else if (interaction.deferred) await interaction.editReply({ content: text, embeds: [], components: [], files: [] });
     else await interaction.reply(payload);
   } catch (replyFailure) {
     console.error("interaction_error_response_failure", { reference, interactionId: interaction.id, replyFailure });
@@ -89,7 +102,10 @@ async function showRank(interaction: RankInteraction, forcedUserId?: string) {
   const user = forcedUserId ? await interaction.client.users.fetch(forcedUserId) : interaction.isChatInputCommand() ? interaction.options.getUser("member") ?? interaction.user : interaction.user;
   await interaction.deferReply({ ephemeral: guild.settings.rankCard.ephemeral || (interaction.isChatInputCommand() && interaction.options.getBoolean("hidden") === true) });
   const rank = await getRank(db, interaction.guildId!, user.id);
-  if (!rank || rank.xp <= 0) throw notice(`${user.displayName} has not earned XP yet`);
+  if (!rank || rank.xp <= 0) throw notice(
+    user.id === interaction.user.id ? "You have not earned any XP yet." : `${user.displayName} has not earned any XP yet.`,
+    "Send a message in a channel where XP is enabled, then try again.",
+  );
   const progress = progressForXp(rank.xp, guild.settings);
   if (interaction.isChatInputCommand() && interaction.options.getBoolean("text_mode") === true) {
     await interaction.editReply(`**${user.displayName}** · Rank **#${rank.rank}** · Level **${progress.level}** · **${rank.xp.toLocaleString()} XP** · ${Math.round(progress.progress * 100)}% to the next level`);

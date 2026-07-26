@@ -214,18 +214,19 @@ test("multi-line entries pair a mention with a value on a following line", () =>
   assert.deepEqual(result.records.map((record) => record.userId), [userId, secondUserId]);
 });
 
-test("a slashed value is read as level progress rather than lifetime XP", () => {
-  // "Exp: 35/55" is progress inside the level. Importing 35 as total XP would
-  // silently understate every member.
+test("a slashed value keeps the first number as lifetime XP", () => {
+  // Amari prints "Exp: 35/55" as total out of the next threshold, not progress
+  // inside the level. The Amari preset proves it: xpForLevel(1) is 35 and
+  // xpForLevel(2) is 55. An earlier version discarded the 35, which replaced
+  // every member's real XP with a level estimate and zeroed anyone on level 0.
   const result = parseAmariMessage({
     content: "",
-    embeds: [{ title: "Leaderboard", description: `<@${userId}>\nLevel: 4\nExp: 35/55`, fields: [] }],
+    embeds: [{ title: "Leaderboard", description: `<@${userId}>\nLevel: 1\nExp: 35/55`, fields: [] }],
   });
   const record = result.records.find((entry) => entry.userId === userId);
   assert.ok(record, "expected a record for the member");
-  assert.equal(record.exact, false, "a fractional exp must not be recorded as an exact XP total");
-  assert.equal(record.level, 4);
-  assert.ok(result.warnings.some((warning) => /progress inside the current level/i.test(warning)));
+  assert.equal(record.exact, true, "the first number is an exact XP total");
+  assert.equal(record.xp, 35);
 });
 
 test("a level on a previous line is never mistaken for an XP total", () => {

@@ -87,28 +87,24 @@ export function mentionPattern(tail: string, flags = "gi") {
 export type RecordPattern = { pattern: RegExp; value: "exact" | "level" };
 
 /*
-  A value written as "35/55" is progress inside the current level, not a total,
-  and importing 35 as lifetime XP would be wrong. Amari's board is the common
-  case. When the number is followed by a slash and another number, the exact
-  reading is discarded so the level pattern can supply the record instead.
-*/
-function isFraction(text: string, matchEnd: number) {
-  return /^\s*\/\s*\d/.test(text.slice(matchEnd, matchEnd + 8));
-}
+  A value written as "35/55" is `total / next threshold`, so the FIRST number is
+  the member's lifetime XP and the second is what the next level costs. The
+  Amari preset in packages/core/src/presets.ts proves it: under that curve
+  xpForLevel(1) is 35 and xpForLevel(2) is 55, exactly the pair Amari prints
+  beside "Level: 1".
 
+  An earlier version of this parser read the pair as progress inside the current
+  level and threw the first number away, which silently replaced every member's
+  real XP with a level-derived estimate and zeroed anyone on level 0.
+*/
 function recordsFrom(text: string, patterns: readonly RecordPattern[], metric: ImportMetric, page?: number) {
   const records = new Map<string, ImportRecord>();
-  let sawFraction = false;
   for (const { pattern, value } of patterns) {
     for (const match of text.matchAll(pattern)) {
       const userId = match[1] ?? "";
       const parsed = safeNumber(match[2]);
       if (!snowflake.test(userId) || parsed === null) continue;
       if (value === "exact") {
-        if (match.index !== undefined && isFraction(text, match.index + match[0].length)) {
-          sawFraction = true;
-          continue;
-        }
         // Patterns run most-specific first, so an earlier exact reading wins.
         // Without this a later, looser pattern could overwrite a good value.
         const existing = records.get(userId);
@@ -119,7 +115,7 @@ function recordsFrom(text: string, patterns: readonly RecordPattern[], metric: I
       }
     }
   }
-  return { records: [...records.values()], sawFraction };
+  return [...records.values()];
 }
 
 /*
@@ -182,14 +178,9 @@ export function parseMessageSnapshot(snapshot: LeaderboardMessageSnapshot, optio
   const rejection = timedMode.test(text)
     ? "Timed leaderboards cannot be used as total XP imports."
     : options.reject?.(text);
-  const parsed = recognized && !rejection
+  let records = recognized && !rejection
     ? recordsFrom(text, options.patterns, options.metric ?? "xp", currentPage)
-    : { records: [] as ImportRecord[], sawFraction: false };
-  let records = parsed.records;
-
-  if (parsed.sawFraction && records.some((record) => !record.exact)) {
-    warnings.push("This leaderboard shows progress inside the current level rather than lifetime XP, so levels were imported and XP will be derived from your curve.");
-  }
+    : [];
 
   // Only reached when the mention patterns found nothing, so this never
   // overrides a clean parse.
