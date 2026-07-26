@@ -22,7 +22,7 @@ import { startGame } from "./games";
 import { showImportPanelMessage } from "./imports";
 import { recordAudit, sendGuildLog } from "./logging";
 import { backgroundUrl, deleteBackground, uploadBackground } from "./storage";
-import { INOCHI_NAVY, WARNING_AMBER } from "./theme";
+import { INOCHI_VERMILION, WARNING_KINCHA } from "./theme";
 import { commandDetailComponents, commandOverviewComponents } from "./commands/help";
 import { getCommandMetadata, resolvePrefixCommandMetadata } from "./commands/metadata";
 import { renderLeaderboard } from "./leaderboard";
@@ -292,7 +292,7 @@ export async function handlePrefixCommand(message: Message<true>, guildRow?: Awa
       const missingRewards = guild.settings.rewards.filter((reward) => !message.guild.roles.cache.has(reward.roleId)).length;
       const unmanageableRewards = me ? guild.settings.rewards.filter((reward) => { const role = message.guild.roles.cache.get(reward.roleId); return role && role.position >= me.roles.highest.position; }).length : guild.settings.rewards.length;
       const checks = [["XP system", guild.settings.enabled], ["Send messages", me?.permissions.has(PermissionFlagsBits.SendMessages) ?? false], ["Attach files", me?.permissions.has(PermissionFlagsBits.AttachFiles) ?? false], ["Manage roles", me?.permissions.has(PermissionFlagsBits.ManageRoles) ?? false], ["Reward references", missingRewards === 0], ["Reward hierarchy", unmanageableRewards === 0]] as const;
-      await message.reply({ embeds: [new EmbedBuilder().setColor(checks.every(([, ok]) => ok) ? INOCHI_NAVY : WARNING_AMBER).setTitle("Inochi diagnostics").setDescription(checks.map(([label, ok]) => `${ok ? "✓" : "✕"} ${label}`).join("\n"))] });
+      await message.reply({ embeds: [new EmbedBuilder().setColor(checks.every(([, ok]) => ok) ? INOCHI_VERMILION : WARNING_KINCHA).setTitle("Inochi diagnostics").setDescription(checks.map(([label, ok]) => `${ok ? "✓" : "✕"} ${label}`).join("\n"))] });
     } else if (command === "import") {
       await showImportPanelMessage(message, args[0]?.toLowerCase());
     } else {

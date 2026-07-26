@@ -3,7 +3,7 @@ import { AttachmentBuilder, EmbedBuilder, PermissionFlagsBits, type Client, type
 import { parseGuildSettings } from "@inochi/core";
 import { and, backupChecksum, backupSnapshots, buildGuildBackup, db, desc, eq, guilds, isNull, lt, sql } from "@inochi/database";
 import type { GuildSettings } from "@inochi/core";
-import { INOCHI_NAVY } from "./theme";
+import { INOCHI_VERMILION } from "./theme";
 import { icon } from "./emojis";
 
 function mostRecentSchedule(settings: GuildSettings, now: Date) {
@@ -48,7 +48,7 @@ async function deliverPending(client: Client, guildId: string, settings: GuildSe
   for (const snapshot of pending) {
     const payload = snapshot.payload as { members?: unknown[] };
     const compressed = gzipSync(JSON.stringify(snapshot.payload));
-    const embed = new EmbedBuilder().setColor(INOCHI_NAVY).setTitle(`${icon(client, "backup")} Scheduled Inochi backup`).setDescription(`Full backup created for **${(payload.members?.length ?? 0).toLocaleString()} members**.\nChecksum: \`${snapshot.checksum.slice(0, 16)}…\``).setTimestamp(snapshot.createdAt);
+    const embed = new EmbedBuilder().setColor(INOCHI_VERMILION).setTitle(`${icon(client, "backup")} Scheduled Inochi backup`).setDescription(`Full backup created for **${(payload.members?.length ?? 0).toLocaleString()} members**.\nChecksum: \`${snapshot.checksum.slice(0, 16)}…\``).setTimestamp(snapshot.createdAt);
     const files = compressed.length <= 8_000_000 ? [new AttachmentBuilder(compressed, { name: `inochi-${guildId}-${snapshot.createdAt.toISOString().slice(0, 10)}.json.gz` })] : [];
     if (!files.length) embed.addFields({ name: "Attachment", value: "Compressed backup exceeds 8 MB. Download it from the manager dashboard." });
     const sent = await channel.send({ embeds: [embed], files, allowedMentions: { parse: [] } }).then(() => true).catch(() => false);

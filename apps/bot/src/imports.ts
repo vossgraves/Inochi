@@ -31,7 +31,7 @@ import {
 } from "@inochi/importers";
 import { applyLevelingPreset, levelingPresets, xpForLevel, type LevelingPresetName } from "@inochi/core";
 import { getOrCreateGuild } from "@inochi/database";
-import { INOCHI_NAVY } from "./theme";
+import { INOCHI_VERMILION } from "./theme";
 
 type ImportComponentInteraction = ButtonInteraction | AnySelectMenuInteraction;
 type Session = typeof importSessions.$inferSelect;
@@ -135,7 +135,7 @@ function panel(options: { source?: ImportProviderId; session?: Session; details?
     : "Choose a source. Inochi checks that its bot is installed, then prefers a verified public leaderboard and falls back to message capture.";
   const id = session?.id ?? selected ?? "none";
   const active = session && (session.status === "collecting" || session.status === "review");
-  const container = new ContainerBuilder().setAccentColor(INOCHI_NAVY)
+  const container = new ContainerBuilder().setAccentColor(INOCHI_VERMILION)
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## XP import\n${status}${details ? `\n\n${details}` : ""}`))
     .addActionRowComponents(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(providerSelect(selected, Boolean(session) || busy)));
   if (!session && selected && !busy) container.addActionRowComponents(new ActionRowBuilder<UserSelectMenuBuilder>().addComponents(

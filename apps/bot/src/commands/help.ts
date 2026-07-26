@@ -1,6 +1,6 @@
 import { ContainerBuilder, TextDisplayBuilder } from "@discordjs/builders";
 import { MessageFlags } from "discord.js";
-import { INOCHI_NAVY } from "../theme";
+import { INOCHI_VERMILION } from "../theme";
 import {
   commandsByCategory,
   formatCommandExample,
@@ -51,7 +51,7 @@ export function renderCommandOverview(prefix: string, links: HelpLinks = {}) {
 
 export function commandOverviewComponents(prefix: string, links: HelpLinks = {}) {
   return {
-    components: [new ContainerBuilder().setAccentColor(INOCHI_NAVY).addTextDisplayComponents(new TextDisplayBuilder().setContent(renderCommandOverview(prefix, links)))],
+    components: [new ContainerBuilder().setAccentColor(INOCHI_VERMILION).addTextDisplayComponents(new TextDisplayBuilder().setContent(renderCommandOverview(prefix, links)))],
     flags: MessageFlags.IsComponentsV2 as const,
   };
 }
@@ -99,7 +99,7 @@ export function commandDetailComponents(input: string, prefix: string, source: "
   const content = resolveCommandHelp(input, prefix, source);
   if (!content) return undefined;
   return {
-    components: [new ContainerBuilder().setAccentColor(INOCHI_NAVY).addTextDisplayComponents(new TextDisplayBuilder().setContent(content))],
+    components: [new ContainerBuilder().setAccentColor(INOCHI_VERMILION).addTextDisplayComponents(new TextDisplayBuilder().setContent(content))],
     flags: MessageFlags.IsComponentsV2 as const,
   };
 }

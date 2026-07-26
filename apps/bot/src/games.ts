@@ -19,7 +19,7 @@ import {
 } from "@inochi/database";
 import { levelForXp } from "@inochi/core";
 import { renderMathGameImage, renderWordGameImage } from "@inochi/rank-card";
-import { INOCHI_NAVY } from "./theme";
+import { INOCHI_VERMILION } from "./theme";
 
 const words = ["nebula", "orbit", "meteor", "galaxy", "satellite", "comet", "eclipse", "cosmos", "pulsar", "gravity", "horizon", "spectrum", "velocity", "quantum"];
 
@@ -97,7 +97,7 @@ export async function startGame(channel: GuildTextBasedChannel, type: "word" | "
   const attachment = new AttachmentBuilder(image, { name: `${type}-race.png` });
   const sent = await channel.send({
     files: [attachment],
-    embeds: [new EmbedBuilder().setColor(INOCHI_NAVY).setTitle(type === "word" ? "Type the word" : "Solve the equation")
+    embeds: [new EmbedBuilder().setColor(INOCHI_VERMILION).setTitle(type === "word" ? "Type the word" : "Solve the equation")
       .setDescription(`${placeText(config.placeXp)}\n\nSend the answer in chat. Each member can place once.`)
       .setImage(`attachment://${type}-race.png`).setFooter({ text: `Ends in ${config.answerSeconds} seconds` })],
   }).catch(async (error) => {

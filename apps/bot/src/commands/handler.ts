@@ -38,7 +38,7 @@ import { backgroundUrl, deleteBackground, uploadBackground } from "../storage";
 import { recordAudit, sendGuildLog } from "../logging";
 import { handleImportComponent, showImportPanel } from "../imports";
 import { handleCoinflipComponent, startCoinflip } from "../coinflip";
-import { INOCHI_NAVY, WARNING_AMBER } from "../theme";
+import { INOCHI_VERMILION, WARNING_KINCHA } from "../theme";
 import { commandDetailComponents, commandOverviewComponents } from "./help";
 import { handleLeaderboardComponent, renderLeaderboard, sendOrUpdatePersistentLeaderboard } from "../leaderboard";
 
@@ -227,7 +227,7 @@ export async function handleInteraction(interaction: Interaction) {
         ["Reward references", missingRewards === 0], ["Reward hierarchy", unmanageableRewards === 0], ["Channel references", missingChannels === 0],
         ["Audit channel", !guild.settings.logging.channelId || Boolean(logPermissions?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks]))],
       ] as const;
-      return interaction.reply({ embeds: [new EmbedBuilder().setColor(checks.every(([, ok]) => ok) ? INOCHI_NAVY : WARNING_AMBER).setTitle("Inochi diagnostics").setDescription(checks.map(([name, ok]) => `${ok ? "✓" : "✕"} ${name}`).join("\n")).setFooter({ text: `${missingRewards} missing roles · ${unmanageableRewards} unmanageable roles · ${missingChannels} missing channels` })], ephemeral: true });
+      return interaction.reply({ embeds: [new EmbedBuilder().setColor(checks.every(([, ok]) => ok) ? INOCHI_VERMILION : WARNING_KINCHA).setTitle("Inochi diagnostics").setDescription(checks.map(([name, ok]) => `${ok ? "✓" : "✕"} ${name}`).join("\n")).setFooter({ text: `${missingRewards} missing roles · ${unmanageableRewards} unmanageable roles · ${missingChannels} missing channels` })], ephemeral: true });
     }
     if (command === "privacy") {
       const value = interaction.options.getBoolean("leaderboard");
@@ -269,7 +269,7 @@ export async function handleInteraction(interaction: Interaction) {
       const totalXp = rows.reduce((sum, row) => sum + row.xp, 0);
       const totalMessages = rows.reduce((sum, row) => sum + row.messages, 0);
       const best = rows[0];
-      return interaction.reply({ embeds: [new EmbedBuilder().setColor(INOCHI_NAVY).setTitle(`${year} Inochi Wrapped`).setDescription(`**${totalXp.toLocaleString()} XP** from **${totalMessages.toLocaleString()} messages** in this server.\nMost active month: **${best?.period ?? "No activity yet"}**.`)], ephemeral: true });
+      return interaction.reply({ embeds: [new EmbedBuilder().setColor(INOCHI_VERMILION).setTitle(`${year} Inochi Wrapped`).setDescription(`**${totalXp.toLocaleString()} XP** from **${totalMessages.toLocaleString()} messages** in this server.\nMost active month: **${best?.period ?? "No activity yet"}**.`)], ephemeral: true });
     }
     if (command === "vote") {
       const guild = await settingsFor(interaction);
@@ -325,7 +325,7 @@ export async function handleInteraction(interaction: Interaction) {
         return interaction.reply({ content: "Weekly XP reset.", ephemeral: true });
       }
       const body = winners.map((member, index) => `\`${index + 1}\` <@${member.userId}> · **${member.weeklyXp.toLocaleString()} XP**`).join("\n") || "No weekly XP has been earned.";
-      return interaction.reply({ embeds: [new EmbedBuilder().setColor(INOCHI_NAVY).setTitle(command === "winner" ? "Weekly winners" : "Weekly leaderboard").setDescription(body)] });
+      return interaction.reply({ embeds: [new EmbedBuilder().setColor(INOCHI_VERMILION).setTitle(command === "winner" ? "Weekly winners" : "Weekly leaderboard").setDescription(body)] });
     }
     if (command === "joinrole") {
       const role = interaction.options.getRole("role");
@@ -375,7 +375,7 @@ export async function handleInteraction(interaction: Interaction) {
       const url = `${(process.env.APP_URL ?? "http://localhost:3000").replace(/\/$/, "")}/dashboard/${interaction.guildId}/setup`;
       return interaction.reply({ content: "Use the guided setup to configure progression safely before enabling XP.", components: [new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(url).setLabel("Open setup wizard"))], ephemeral: true });
     }
-    if (command === "botstatus") return interaction.reply({ embeds: [new EmbedBuilder().setColor(INOCHI_NAVY).setTitle("Inochi status").addFields(
+    if (command === "botstatus") return interaction.reply({ embeds: [new EmbedBuilder().setColor(INOCHI_VERMILION).setTitle("Inochi status").addFields(
       { name: "Servers", value: interaction.client.guilds.cache.size.toLocaleString(), inline: true },
       { name: "Shards", value: String(interaction.client.ws.shards.size), inline: true },
       { name: "Ping", value: `${interaction.client.ws.ping} ms`, inline: true },
@@ -401,7 +401,7 @@ export async function handleInteraction(interaction: Interaction) {
       const target = Math.min(interaction.options.getInteger("level", true), guild.settings.curve.maxLevel);
       const required = xpForLevel(target, guild.settings);
       const remaining = Math.max(0, required - (rank?.xp ?? 0));
-      return interaction.reply({ embeds: [new EmbedBuilder().setColor(INOCHI_NAVY).setTitle(`Level ${target} calculation`).setDescription(`<@${user.id}> needs **${remaining.toLocaleString()} XP** (${required.toLocaleString()} total).`)] });
+      return interaction.reply({ embeds: [new EmbedBuilder().setColor(INOCHI_VERMILION).setTitle(`Level ${target} calculation`).setDescription(`<@${user.id}> needs **${remaining.toLocaleString()} XP** (${required.toLocaleString()} total).`)] });
     }
     if (command === "sync") {
       const user = interaction.options.getUser("member") ?? interaction.user;

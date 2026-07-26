@@ -2,7 +2,7 @@ import { ActionRowBuilder, ButtonBuilder, ContainerBuilder, TextDisplayBuilder }
 import { ButtonStyle, MessageFlags, type ButtonInteraction, type ChatInputCommandInteraction, type Client, type GuildMember, type Message } from "discord.js";
 import { acceptCoinflipChallenge, coinflipChallenges, createCoinflipChallenge, db, declineCoinflipChallenge, eq, expireCoinflipChallenges, getOrCreateGuild, getRank, markPersistentLeaderboardDirty } from "@inochi/database";
 import { icon } from "./emojis";
-import { INOCHI_NAVY } from "./theme";
+import { INOCHI_VERMILION } from "./theme";
 
 type Side = "heads" | "tails";
 type Challenge = {
@@ -22,7 +22,7 @@ function challengePanel(challenge: Challenge, state: "open" | "declined" | "expi
   const status = state === "open"
     ? `<@${challenge.challengerId}> chose **${side}** and challenged <@${challenge.opponentId}> for **${challenge.wager.toLocaleString()} XP each**.\nExpires <t:${Math.floor(challenge.expiresAt.getTime() / 1000)}:R>.`
     : state === "declined" ? "The challenge was declined." : "The challenge expired.";
-  const container = new ContainerBuilder().setAccentColor(INOCHI_NAVY).addTextDisplayComponents(new TextDisplayBuilder().setContent(`## Coinflip challenge\n${status}`));
+  const container = new ContainerBuilder().setAccentColor(INOCHI_VERMILION).addTextDisplayComponents(new TextDisplayBuilder().setContent(`## Coinflip challenge\n${status}`));
   if (state === "open") container.addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder().setCustomId(`coinflip:accept:${challenge.id}`).setLabel("Accept").setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId(`coinflip:decline:${challenge.id}`).setLabel("Decline").setStyle(ButtonStyle.Danger),
@@ -96,7 +96,7 @@ export async function handleCoinflipComponent(interaction: ButtonInteraction) {
   const result = outcome.outcome;
   const winnerId = outcome.winnerId;
   if (!settlement.idempotent) await markPersistentLeaderboardDirty(db, interaction.guildId);
-  await interaction.editReply({ components: [new ContainerBuilder().setAccentColor(INOCHI_NAVY).addTextDisplayComponents(new TextDisplayBuilder().setContent(
+  await interaction.editReply({ components: [new ContainerBuilder().setAccentColor(INOCHI_VERMILION).addTextDisplayComponents(new TextDisplayBuilder().setContent(
     `## ${icon(interaction.client, "coinflip")} ${result[0]!.toUpperCase()}${result.slice(1)}\n<@${winnerId}> won **${outcome.wager.toLocaleString()} XP** from <@${winnerId === outcome.challengerId ? outcome.opponentId : outcome.challengerId}>.`,
   ))] });
   const { syncMember } = await import("./commands/handler");

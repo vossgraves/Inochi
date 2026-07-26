@@ -17,7 +17,7 @@ import {
   type PersistentLeaderboardClaim,
 } from "@inochi/database";
 import { ButtonStyle, DiscordAPIError, MessageFlags, type ButtonInteraction, type Client, type Guild, type MessageCreateOptions } from "discord.js";
-import { INOCHI_NAVY } from "./theme";
+import { INOCHI_VERMILION } from "./theme";
 
 export interface LeaderboardRenderOptions {
   rows?: number;
@@ -52,7 +52,7 @@ export async function renderLeaderboard(guild: Guild, settings: GuildSettings, o
   const updated = options.updatedAt
     ? `\n### Updated <t:${Math.floor(options.updatedAt.getTime() / 1000)}:R>`
     : "";
-  const container = new ContainerBuilder().setAccentColor(INOCHI_NAVY)
+  const container = new ContainerBuilder().setAccentColor(INOCHI_VERMILION)
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${guild.name} leaderboard${page > 1 ? ` · page ${page}` : ""}\n${body}${updated}`))
     .addActionRowComponents(buttons);
   const payload = { components: [container], flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } } satisfies MessageCreateOptions;

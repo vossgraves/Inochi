@@ -1,16 +1,16 @@
 import { EmbedBuilder, type Client } from "discord.js";
 import { and, auditLogs, db, eq, getGuild, isNull, lt } from "@inochi/database";
-import { ERROR_RED, INFO_CYAN, INOCHI_NAVY, SUCCESS_GREEN, WARNING_AMBER } from "./theme";
+import { ERROR_RED, INFO_MUTED, INOCHI_VERMILION, SUCCESS_MOSS, WARNING_KINCHA } from "./theme";
 import { icon, type InochiEmoji } from "./emojis";
 
 export type LogCategory = "commandUsage" | "levelUps" | "adminActions" | "errors" | "backups";
 
 const logPresentation: Record<LogCategory, { emoji: InochiEmoji; color: number }> = {
-  commandUsage: { emoji: "info", color: INFO_CYAN },
-  levelUps: { emoji: "levelup", color: SUCCESS_GREEN },
-  adminActions: { emoji: "security", color: WARNING_AMBER },
+  commandUsage: { emoji: "info", color: INFO_MUTED },
+  levelUps: { emoji: "levelup", color: SUCCESS_MOSS },
+  adminActions: { emoji: "security", color: WARNING_KINCHA },
   errors: { emoji: "error", color: ERROR_RED },
-  backups: { emoji: "backup", color: INOCHI_NAVY },
+  backups: { emoji: "backup", color: INOCHI_VERMILION },
 };
 
 export async function recordAudit(guildId: string, actorId: string, action: string, metadata: Record<string, unknown> = {}) {

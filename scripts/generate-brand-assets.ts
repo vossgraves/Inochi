@@ -21,7 +21,7 @@ async function main() {
   const names = Object.keys(emojiFallbacks) as (keyof typeof emojiFallbacks)[];
   const sheet = createCanvas(700, 360);
   const context = sheet.getContext("2d");
-  context.fillStyle = "#080a18";
+  context.fillStyle = "#14110f";
   context.fillRect(0, 0, 700, 360);
   context.font = "700 18px sans-serif";
   context.textAlign = "center";
@@ -32,7 +32,7 @@ async function main() {
     const x = 18 + column * 98;
     const y = 18 + row * 170;
     context.drawImage(image, x, y, 92, 92);
-    context.fillStyle = "#b7bfdc";
+    context.fillStyle = "#a8a199";
     context.fillText(name, x + 46, y + 120);
   }
   const sheetDestination = new URL("../apps/web/public/brand/inochi-emoji-sheet.png", import.meta.url);
