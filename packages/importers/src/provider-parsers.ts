@@ -1,10 +1,16 @@
 import type { LeaderboardMessageSnapshot, ParseResult } from "./index";
-import { parseMessageSnapshot, type RecordPattern } from "./message-parsing";
+import { mentionPattern, parseMessageSnapshot, WITHIN_ENTRY, type RecordPattern } from "./message-parsing";
 
+/*
+  Every mention pattern joins the ID to its value with WITHIN_ENTRY rather than
+  `[^\n]*?`. Entries that span several lines, which is how Amari and several
+  others format their boards, previously produced zero records because the
+  value sat on the line after the mention and `[^\n]` could never reach it.
+*/
 const mentionXp: readonly RecordPattern[] = [
-  { pattern: /<@!?(\d{16,20})>[^\n]*?(?:total\s*)?(?:xp|experience)\s*[:=-]?\s*([\d,_ ]+)/gi, value: "exact" },
-  { pattern: /<@!?(\d{16,20})>[^\n]*?([\d,_]+)\s*(?:xp|experience)\b/gi, value: "exact" },
-  { pattern: /<@!?(\d{16,20})>[^\n]*?(?:level|lvl)\s*[:=-]?\s*(\d+)/gi, value: "level" },
+  { pattern: mentionPattern("(?:total\\s*)?(?:xp|experience)\\s*[:=-]?\\s*([\\d,_ ]+)"), value: "exact" },
+  { pattern: mentionPattern("([\\d,_]+)[ \\t]*(?:xp|experience)\\b"), value: "exact" },
+  { pattern: mentionPattern("(?:level|lvl)\\s*[:=-]?\\s*(\\d+)"), value: "level" },
 ];
 
 export function parseMee6Message(snapshot: LeaderboardMessageSnapshot): ParseResult {
@@ -18,11 +24,12 @@ export function parseArcaneMessage(snapshot: LeaderboardMessageSnapshot): ParseR
   return parseMessageSnapshot(snapshot, {
     recognized: /\barcane\b|\bleaderboard\b|\brankings?\b|\bpage\s*[:#]?\s*\d+/i,
     patterns: [
-      { pattern: /<@!?(\d{16,20})>[^\n]*?(?:xp|experience)\s*[:=-]?\s*([\d,_ ]+)/gi, value: "exact" },
-      { pattern: /<@!?(\d{16,20})>[^\n]*?([\d,_]+)\s*(?:xp|experience)\b/gi, value: "exact" },
-      { pattern: /<@!?(\d{16,20})>[^\n]*?(?:level|lvl)\s*[:=-]?\s*(\d+)/gi, value: "level" },
-      { pattern: /(?:^|\n)\s*(\d{16,20})[^\n]*?(?:xp|experience)\s*[:=-]?\s*([\d,_ ]+)/gi, value: "exact" },
-      { pattern: /(?:^|\n)\s*(\d{16,20})[^\n]*?(?:level|lvl)\s*[:=-]?\s*(\d+)/gi, value: "level" },
+      { pattern: mentionPattern("(?:xp|experience)\\s*[:=-]?\\s*([\\d,_ ]+)"), value: "exact" },
+      { pattern: mentionPattern("([\\d,_]+)[ \\t]*(?:xp|experience)\\b"), value: "exact" },
+      { pattern: mentionPattern("(?:level|lvl)\\s*[:=-]?\\s*(\\d+)"), value: "level" },
+      // Bare snowflakes at the start of a row, for boards that print raw IDs.
+      { pattern: new RegExp(`(?:^|\\n)\\s*(\\d{16,20})${WITHIN_ENTRY}(?:xp|experience)\\s*[:=-]?\\s*([\\d,_ ]+)`, "gi"), value: "exact" },
+      { pattern: new RegExp(`(?:^|\\n)\\s*(\\d{16,20})${WITHIN_ENTRY}(?:level|lvl)\\s*[:=-]?\\s*(\\d+)`, "gi"), value: "level" },
     ],
   });
 }
@@ -37,9 +44,9 @@ export function parseProBotMessage(snapshot: LeaderboardMessageSnapshot): ParseR
       return undefined;
     },
     patterns: [
-      { pattern: /<@!?(\d{16,20})>[^\n]*?(?:text\s*)?(?:xp|experience)\s*[:=-]?\s*([\d,_ ]+)/gi, value: "exact" },
-      { pattern: /<@!?(\d{16,20})>[^\n]*?([\d,_]+)\s*(?:text\s*)?(?:xp|experience)\b/gi, value: "exact" },
-      { pattern: /<@!?(\d{16,20})>[^\n]*?(?:level|lvl)\s*[:=-]?\s*(\d+)/gi, value: "level" },
+      { pattern: mentionPattern("(?:text\\s*)?(?:xp|experience)\\s*[:=-]?\\s*([\\d,_ ]+)"), value: "exact" },
+      { pattern: mentionPattern("([\\d,_]+)[ \\t]*(?:text\\s*)?(?:xp|experience)\\b"), value: "exact" },
+      { pattern: mentionPattern("(?:level|lvl)\\s*[:=-]?\\s*(\\d+)"), value: "level" },
     ],
   });
 }
@@ -48,9 +55,12 @@ export function parseAmariMessage(snapshot: LeaderboardMessageSnapshot): ParseRe
   return parseMessageSnapshot(snapshot, {
     recognized: /\bamari(?:bot)?\b|\bleaderboard\b|\brankings?\b|\bpage\s*[:#]?\s*\d+/i,
     patterns: [
-      { pattern: /<@!?(\d{16,20})>[^\n]*?(?:total\s*)?(?:exp|xp|experience)\s*[:=-]?\s*([\d,_ ]+)/gi, value: "exact" },
-      { pattern: /<@!?(\d{16,20})>[^\n]*?([\d,_]+)\s*(?:exp|xp|experience)\b/gi, value: "exact" },
-      { pattern: /<@!?(\d{16,20})>[^\n]*?(?:level|lvl)\s*[:=-]?\s*(\d+)/gi, value: "level" },
+      // Amari prints "Exp: 35/55", which is progress inside the current level
+      // rather than lifetime XP. recordsFrom detects the slash and drops the
+      // exact reading, so the level pattern below supplies the record instead.
+      { pattern: mentionPattern("(?:total\\s*)?(?:exp|xp|experience)\\s*[:=-]?\\s*([\\d,_ ]+)"), value: "exact" },
+      { pattern: mentionPattern("([\\d,_]+)[ \\t]*(?:exp|xp|experience)\\b"), value: "exact" },
+      { pattern: mentionPattern("(?:level|lvl)\\s*[:=-]?\\s*(\\d+)"), value: "level" },
     ],
   });
 }
@@ -67,9 +77,9 @@ export function parseCarlBotMessage(snapshot: LeaderboardMessageSnapshot): Parse
     recognized: /\bcarl(?:-?bot)?\b|\blevel(?:s|ing)?\s+leaderboard\b|\bleaderboard\b|\bpage\s*[:#]?\s*\d+/i,
     reject: (text) => /\blevel(?:s|ing)?\b/i.test(text) ? undefined : "Use Carl-bot's level leaderboard.",
     patterns: [
-      { pattern: /<@!?(\d{16,20})>[^\n]*?(?:xp|experience)\s*[:=-]?\s*([\d,_ ]+)/gi, value: "exact" },
-      { pattern: /<@!?(\d{16,20})>[^\n]*?(?:level|lvl)\s*[:#=-]?\s*(\d+)/gi, value: "level" },
-      { pattern: /<@!?(\d{16,20})>[^\n]*?\(\s*(?:level|lvl)?\s*(\d+)\s*\)/gi, value: "level" },
+      { pattern: mentionPattern("(?:xp|experience)\\s*[:=-]?\\s*([\\d,_ ]+)"), value: "exact" },
+      { pattern: mentionPattern("(?:level|lvl)\\s*[:#=-]?\\s*(\\d+)"), value: "level" },
+      { pattern: mentionPattern("\\(\\s*(?:level|lvl)?\\s*(\\d+)\\s*\\)"), value: "level" },
     ],
   });
 }
@@ -84,9 +94,9 @@ export function parseTatsuMessage(snapshot: LeaderboardMessageSnapshot): ParseRe
       return undefined;
     },
     patterns: [
-      { pattern: /<@!?(\d{16,20})>[^\n]*?(?:server\s*)?(?:score|points?)\s*[:=-]?\s*([\d,_ ]+)/gi, value: "exact" },
-      { pattern: /<@!?(\d{16,20})>[^\n]*?([\d,_]+)\s*(?:server\s*)?(?:score|points?)\b/gi, value: "exact" },
-      { pattern: /<@!?(\d{16,20})>[^\n]*?(?:level|lvl)\s*[:=-]?\s*(\d+)/gi, value: "level" },
+      { pattern: mentionPattern("(?:server\\s*)?(?:score|points?)\\s*[:=-]?\\s*([\\d,_ ]+)"), value: "exact" },
+      { pattern: mentionPattern("([\\d,_]+)[ \\t]*(?:server\\s*)?(?:score|points?)\\b"), value: "exact" },
+      { pattern: mentionPattern("(?:level|lvl)\\s*[:=-]?\\s*(\\d+)"), value: "level" },
     ],
     conversionWarning: "Tatsu server score will be imported one-to-one as Inochi XP.",
   });

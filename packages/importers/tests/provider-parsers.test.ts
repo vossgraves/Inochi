@@ -4,6 +4,7 @@ import {
   importProviderIds,
   importProviders,
   isImportProviderId,
+  parseAmariMessage,
   parseArcaneMessage,
   providerForBotUserId,
   type LeaderboardMessageSnapshot,
@@ -190,4 +191,113 @@ test("Tatsu exact records retain their source metric and conversion warning", ()
   const result = importProviders.tatsu.parseMessage(snapshot(`Tatsu server leaderboard\n<@${userId}> Server points: 700`));
   assert.equal(result.records[0]?.metric, "server_score");
   assert.match(result.warnings.join(" "), /one-to-one/);
+});
+
+/*
+  Regression tests for two reported /import failures, both reproduced against
+  real AmariBot and Arcane leaderboard messages before being fixed.
+*/
+
+test("multi-line entries pair a mention with a value on a following line", () => {
+  // Amari puts the mention, the level and the exp on three separate lines.
+  // Every pattern used to join them with [^\n]*?, so this produced no records.
+  const result = parseAmariMessage({
+    content: "",
+    embeds: [{
+      title: "Leaderboard",
+      description: `Mauve Hideout Server\n\n🥇 <@${userId}>\nLevel: 4\nExp: 35/55\n\n🥈 <@${secondUserId}>\nLevel: 2\nExp: 28/35`,
+      fields: [],
+    }],
+  });
+  assert.equal(result.recognized, true);
+  assert.equal(result.records.length, 2);
+  assert.deepEqual(result.records.map((record) => record.userId), [userId, secondUserId]);
+});
+
+test("a slashed value is read as level progress rather than lifetime XP", () => {
+  // "Exp: 35/55" is progress inside the level. Importing 35 as total XP would
+  // silently understate every member.
+  const result = parseAmariMessage({
+    content: "",
+    embeds: [{ title: "Leaderboard", description: `<@${userId}>\nLevel: 4\nExp: 35/55`, fields: [] }],
+  });
+  const record = result.records.find((entry) => entry.userId === userId);
+  assert.ok(record, "expected a record for the member");
+  assert.equal(record.exact, false, "a fractional exp must not be recorded as an exact XP total");
+  assert.equal(record.level, 4);
+  assert.ok(result.warnings.some((warning) => /progress inside the current level/i.test(warning)));
+});
+
+test("a level on a previous line is never mistaken for an XP total", () => {
+  // "Level: 7" followed by "Exp: ..." on the next line must not let the number
+  // before the unit reach across the newline and import 7 as XP.
+  const result = parseAmariMessage({
+    content: "",
+    embeds: [{ title: "Leaderboard", description: `<@${userId}>\nLevel: 7\nExp: 900/1000`, fields: [] }],
+  });
+  const record = result.records.find((entry) => entry.userId === userId);
+  assert.ok(record);
+  assert.notEqual(record.xp, 7, "the level value leaked into the XP field");
+});
+
+test("member IDs are recovered from row avatars when a board prints usernames", () => {
+  // Arcane's Components V2 board lists plain usernames, so the text holds no
+  // snowflake. The IDs are only present in the avatar CDN URLs.
+  const result = parseArcaneMessage({
+    content: "",
+    embeds: [{ title: "Mauve Hideout", description: "", fields: [] }],
+    components: [{
+      type: 17,
+      components: [
+        { type: 10, content: "View leaderboard" },
+        {
+          type: 9,
+          components: [{ type: 10, content: "#1 - @someone - LVL: 9" }],
+          accessory: { type: 11, media: { url: `https://cdn.discordapp.com/avatars/${userId}/abc.png` } },
+        },
+        {
+          type: 9,
+          components: [{ type: 10, content: "#2 - @another - LVL: 5" }],
+          accessory: { type: 11, media: { url: `https://cdn.discordapp.com/avatars/${secondUserId}/def.png` } },
+        },
+      ],
+    }],
+  });
+  assert.equal(result.records.length, 2);
+  assert.deepEqual(result.records.map((record) => record.userId), [userId, secondUserId]);
+  assert.deepEqual(result.records.map((record) => record.level), [9, 5]);
+  assert.ok(result.warnings.some((warning) => /row avatars/i.test(warning)), "avatar pairing must be flagged for review");
+});
+
+test("guild-specific avatar URLs resolve to the member, not the guild", () => {
+  // /guilds/<guildId>/users/<userId>/avatars/<hash> puts the guild ID first.
+  const result = parseArcaneMessage({
+    content: "",
+    embeds: [{ title: "Leaderboard", description: "", fields: [] }],
+    components: [{
+      type: 17,
+      components: [
+        { type: 9, components: [{ type: 10, content: "#1 - @a - LVL: 3" }], accessory: { type: 11, media: { url: `https://cdn.discordapp.com/guilds/999888777666555444/users/${userId}/avatars/x.png` } } },
+        { type: 9, components: [{ type: 10, content: "#2 - @b - LVL: 1" }], accessory: { type: 11, media: { url: `https://cdn.discordapp.com/guilds/999888777666555444/users/${secondUserId}/avatars/y.png` } } },
+      ],
+    }],
+  });
+  assert.deepEqual(result.records.map((record) => record.userId), [userId, secondUserId]);
+});
+
+test("avatar pairing bails out when IDs and values do not line up", () => {
+  // Three avatars against two values means the positional pairing is unsafe.
+  const result = parseArcaneMessage({
+    content: "",
+    embeds: [{ title: "Leaderboard", description: "", fields: [] }],
+    components: [{
+      type: 17,
+      components: [
+        { type: 9, components: [{ type: 10, content: "#1 - @a - LVL: 3" }], accessory: { type: 11, media: { url: `https://cdn.discordapp.com/avatars/${userId}/x.png` } } },
+        { type: 9, components: [{ type: 10, content: "#2 - @b - LVL: 1" }], accessory: { type: 11, media: { url: `https://cdn.discordapp.com/avatars/${secondUserId}/y.png` } } },
+        { type: 9, components: [{ type: 10, content: "#3 - @c" }], accessory: { type: 11, media: { url: "https://cdn.discordapp.com/avatars/323456789012345678/z.png" } } },
+      ],
+    }],
+  });
+  assert.equal(result.records.length, 0, "unbalanced rows must not be guessed at");
 });

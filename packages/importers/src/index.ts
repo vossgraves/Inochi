@@ -78,12 +78,12 @@ interface LurkrPaginationMetadata {
   pageCount?: unknown;
 }
 
-async function publicJson(url: string, attempts = 3): Promise<Response> {
+async function publicJson(url: string, attempts = 3, extraHeaders: Record<string, string> = {}): Promise<Response> {
   let lastError: unknown;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
       const response = await fetch(url, {
-        headers: { "user-agent": "Inochi/2.0 (server-owner initiated migration)", accept: "application/json" },
+        headers: { "user-agent": "Inochi/2.0 (server-owner initiated migration)", accept: "application/json", ...extraHeaders },
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
       if (response.ok || ![429, 500, 502, 503, 504].includes(response.status) || attempt === attempts - 1) return response;
@@ -185,11 +185,72 @@ async function fetchLurkr(guildId: string): Promise<PublicImportResult> {
   return { records: [...records.values()].slice(0, MAX_IMPORT_RECORDS), pages, expectedPages: expectedPages ?? (complete ? pages : undefined), complete, warnings };
 }
 
+/*
+  AmariBot's official API, the highest-fidelity source available for Amari.
+
+  Tiers, in the order they are attempted for a given provider:
+    1. Official API, when a key is configured. Exact lifetime XP.
+    2. Public web leaderboard. NOT viable for Amari or Arcane and deliberately
+       not implemented: amaribot.com/leaderboard renders client-side, so its
+       HTML carries no data, and arcane.bot's API answers automated leaderboard
+       requests with `403 Forbidden mee6 is over there`, an explicit refusal of
+       exactly this use case. Building either would mean a headless browser or
+       working around a stated no.
+    3. Message capture, which imports.ts already falls back to whenever this
+       throws. That path was fixed to read multi-line entries and to recover
+       member IDs from row avatars.
+
+  Without AMARI_API_KEY this throws immediately, which is the intended path to
+  tier 3 rather than an error the operator has to act on.
+*/
+async function fetchAmari(guildId: string): Promise<PublicImportResult> {
+  const key = process.env.AMARI_API_KEY?.trim();
+  if (!key) throw new Error("No AmariBot API key is configured, so the public message capture will be used instead");
+
+  const records = new Map<string, ImportRecord>();
+  const warnings: string[] = [];
+  let pages = 0;
+  let complete = false;
+  const deadline = Date.now() + PUBLIC_IMPORT_BUDGET_MS;
+  const limit = 1_000;
+
+  for (let page = 0; page < MAX_PUBLIC_PAGES && records.size < MAX_IMPORT_RECORDS; page += 1) {
+    if (Date.now() >= deadline) { warnings.push("AmariBot import stopped at the eight-minute interaction budget; review the partial result."); break; }
+    const response = await publicJson(
+      `https://amaribot.com/api/v1/guild/leaderboard/${guildId}?limit=${limit}&page=${page}`,
+      3,
+      { authorization: key },
+    );
+    if (response.status === 401 || response.status === 403) throw new Error("AmariBot rejected the configured API key");
+    if (response.status === 404) throw new Error("AmariBot has no leaderboard for this server");
+    if (!response.ok) throw new Error(`AmariBot returned ${response.status}`);
+    const body = await response.json() as { data?: Array<{ id?: unknown; exp?: unknown; level?: unknown }> };
+    if (!Array.isArray(body.data)) throw new Error("AmariBot returned an unsupported leaderboard response");
+    pages += 1;
+    const before = records.size;
+    for (const player of body.data) {
+      if (records.size >= MAX_IMPORT_RECORDS) break;
+      const userId = String(player.id ?? "");
+      const xp = safeNumber(player.exp);
+      const level = safeNumber(player.level) ?? undefined;
+      if (snowflake.test(userId) && xp !== null) records.set(userId, { userId, xp, level, exact: true, metric: "xp", page });
+    }
+    if (body.data.length < limit) { complete = true; break; }
+    if (records.size === before) { warnings.push("AmariBot returned a repeated or unparseable page; pagination stopped early."); break; }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  if (pages >= MAX_PUBLIC_PAGES) warnings.push(`AmariBot pagination stopped after ${MAX_PUBLIC_PAGES.toLocaleString()} pages.`);
+  if (records.size >= MAX_IMPORT_RECORDS) warnings.push(`Import capped at ${MAX_IMPORT_RECORDS.toLocaleString()} members.`);
+  if (!records.size) throw new Error("AmariBot returned no members for this server");
+  return { records: [...records.values()].slice(0, MAX_IMPORT_RECORDS), pages, expectedPages: complete ? pages : undefined, complete, warnings };
+}
+
 export const importProviders: Record<ImportProviderId, ImportProvider> = {
   mee6: { id: "mee6", label: "MEE6", botUserIds: ["159985870458322944"], strategies: ["web", "message"], sourceValue: "xp", knownPreset: "mee6", messageInstructions: "Run MEE6's public leaderboard command and visit each page.", parseMessage: parseMee6Message, fetchPublic: fetchMee6 },
   arcane: { id: "arcane", label: "Arcane", botUserIds: ["437808476106784770", "1217870452253397082", "645343657075146772"], strategies: ["message"], sourceValue: "xp", messageInstructions: "Run Arcane's public /leaderboard command and visit each page.", parseMessage: parseArcaneMessage },
   probot: { id: "probot", label: "ProBot", botUserIds: ["282859044593598464"], strategies: ["message"], sourceValue: "text_xp", messageInstructions: "Run ProBot's public /top text leaderboard and visit each page.", parseMessage: parseProBotMessage },
-  amari: { id: "amari", label: "AmariBot", botUserIds: ["339254240012664832"], strategies: ["message"], sourceValue: "xp", knownPreset: "amari", messageInstructions: "Run AmariBot's public leaderboard command and visit each page.", parseMessage: parseAmariMessage },
+  amari: { id: "amari", label: "AmariBot", botUserIds: ["339254240012664832"], strategies: ["web", "message"], sourceValue: "xp", knownPreset: "amari", messageInstructions: "Run AmariBot's public leaderboard command and visit each page.", parseMessage: parseAmariMessage, fetchPublic: fetchAmari },
   lurkr: { id: "lurkr", label: "Lurkr", botUserIds: ["506186003816513538"], strategies: ["web", "message"], sourceValue: "xp", knownPreset: "lurkr", messageInstructions: "Run Lurkr's public leaderboard command and visit each page.", parseMessage: parseLurkrMessage, fetchPublic: fetchLurkr },
   carlbot: { id: "carlbot", label: "Carl-bot", botUserIds: ["235148962103951360"], strategies: ["message"], sourceValue: "level", messageInstructions: "Run Carl-bot's public /level leaderboard command and visit each page.", parseMessage: parseCarlBotMessage },
   tatsu: { id: "tatsu", label: "Tatsu", botUserIds: ["172002255350792192"], strategies: ["message"], sourceValue: "server_score", messageInstructions: "Run Tatsu's public server leaderboard (not global) and visit each page.", parseMessage: parseTatsuMessage },
@@ -230,6 +291,6 @@ export function parseCsv(value: string): ImportRecord[] {
   });
 }
 
-export { fetchMee6, fetchLurkr };
+export { fetchMee6, fetchLurkr, fetchAmari };
 export { parseAmariMessage, parseArcaneMessage, parseCarlBotMessage, parseLurkrMessage, parseMee6Message, parseProBotMessage, parseTatsuMessage } from "./provider-parsers";
 export { parseLegacyXpJson } from "./legacy-xp-json";
