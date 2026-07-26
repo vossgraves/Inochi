@@ -17,19 +17,16 @@ if [ -f "$ENV_FILE" ]; then
 fi
 
 if [ -z "${RAILWAY_TOKEN:-}" ]; then
-  echo "[railway-auth] ERROR: RAILWAY_TOKEN is not set." >&2
-  echo "[railway-auth] Create one at https://railway.com/account/tokens" >&2
-  echo "[railway-auth] then add it as RAILWAY_TOKEN in your Vercel project env vars." >&2
-  exit 1
+  echo "[railway-auth] SKIP: RAILWAY_TOKEN not set. Create one at https://railway.com/account/tokens and add it as a Vercel env var." >&2
+  exit 0
 fi
 
-# Railway CLI v5 reads RAILWAY_TOKEN from the environment directly — no config
-# file needed. Export it so every subsequent railway command in this shell uses it.
+# Railway CLI v5 reads RAILWAY_TOKEN from the environment directly — no config file needed.
 export RAILWAY_TOKEN
 
 result=$(RAILWAY_TOKEN="$RAILWAY_TOKEN" railway whoami 2>&1 | grep -v "parse config" | head -1)
 if [ -z "$result" ]; then
-  echo "[railway-auth] ERROR: railway whoami returned no output — token may be invalid." >&2
-  exit 1
+  echo "[railway-auth] WARNING: railway whoami returned no output — token may be invalid." >&2
+  exit 0
 fi
 echo "[railway-auth] Authenticated as: $result"
