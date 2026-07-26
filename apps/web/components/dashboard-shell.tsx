@@ -58,15 +58,45 @@ export function DashboardShell({ children, guildName, nav = [] }: { children: Re
       window.removeEventListener("resize", update);
     };
   }, [pathname, sectionKey]);
-  return <div className="dashboard-layout">
-    <header className="mobile-appbar"><Link href="/dashboard" className="brand mono"><Brand /></Link><span>{guildName ?? "Dashboard"}</span><button ref={menuButtonRef} type="button" aria-label="Open navigation" aria-expanded={open} aria-controls="dashboard-navigation" onClick={() => setOpen(true)}><Menu size={20} /></button></header>
-    {open && <button type="button" className="drawer-backdrop" aria-label="Close navigation" onClick={() => setOpen(false)} />}
-    <aside ref={drawerRef} id="dashboard-navigation" aria-label="Dashboard navigation" className={`sidebar ${open ? "open" : ""}`}>
-      <div className="sidebar-head"><Link href="/dashboard" className="brand mono"><Brand /></Link><button type="button" className="mobile-close" aria-label="Close navigation" onClick={() => setOpen(false)}><X size={18} /></button></div>
-      {guildName && <div className="sidebar-context"><span className="mono">Current server</span><strong>{guildName}</strong></div>}
-      <nav>{links.map((item) => <Link className={`nav-link ${active === item.href ? "active" : ""}`} href={item.href} key={item.href} aria-current={active === item.href ? (item.href.startsWith("#") ? "location" : "page") : undefined} onClick={() => { setActive(item.href); setOpen(false); }}>{item.label}</Link>)}</nav>
-      <form action="/api/auth/logout" method="post" className="sidebar-signout"><button type="submit"><LogOut size={15} /> Sign out</button></form>
-    </aside>
-    <main className="dashboard-main">{children}</main>
-  </div>;
+  return (
+    <div className="dashboard-layout">
+      <header className="mobile-appbar">
+        <Link href="/dashboard" className="brand mono"><Brand /></Link>
+        <span>{guildName ?? "Dashboard"}</span>
+        <button ref={menuButtonRef} type="button" aria-label="Open navigation" aria-expanded={open} aria-controls="dashboard-navigation" onClick={() => setOpen(true)}>
+          <Menu size={20} />
+        </button>
+      </header>
+      {open && <button type="button" className="drawer-backdrop" aria-label="Close navigation" onClick={() => setOpen(false)} />}
+      <aside ref={drawerRef} id="dashboard-navigation" aria-label="Dashboard navigation" className={`sidebar ${open ? "open" : ""}`}>
+        <div className="sidebar-head">
+          <Link href="/dashboard" className="brand mono"><Brand /></Link>
+          <button type="button" className="mobile-close" aria-label="Close navigation" onClick={() => setOpen(false)}><X size={18} /></button>
+        </div>
+        {guildName && (
+          <div className="sidebar-context">
+            <span className="mono">Current server</span>
+            <strong>{guildName}</strong>
+          </div>
+        )}
+        <nav>
+          {links.map((item) => (
+            <Link
+              className={`nav-link ${active === item.href ? "active" : ""}`}
+              href={item.href}
+              key={item.href}
+              aria-current={active === item.href ? (item.href.startsWith("#") ? "location" : "page") : undefined}
+              onClick={() => { setActive(item.href); setOpen(false); }}
+            >
+              {item.label}
+            </Link>
+          ))}
+        </nav>
+        <form action="/api/auth/logout" method="post" className="sidebar-signout">
+          <button type="submit"><LogOut size={15} /> Sign out</button>
+        </form>
+      </aside>
+      <main className="dashboard-main">{children}</main>
+    </div>
+  );
 }

@@ -1,5 +1,20 @@
 import Link from "next/link";
-import { Activity, ArrowDownRight, ArrowRight, Blocks, Bot, Database, Gamepad2, Github, LineChart, LockKeyhole, MoveUpRight, ShieldCheck, Sparkles, Trophy, Users } from "lucide-react";
+import {
+  Activity,
+  ArrowRight,
+  Blocks,
+  Bot,
+  Database,
+  Gamepad2,
+  Github,
+  LineChart,
+  LockKeyhole,
+  MoveUpRight,
+  ShieldCheck,
+  Sparkles,
+  Trophy,
+  Users,
+} from "lucide-react";
 import { getSession } from "../lib/auth";
 import { LandingCurve } from "../components/landing-curve";
 import { Brand, BrandMark } from "../components/brand-mark";
@@ -14,7 +29,7 @@ const features = [
 ] as const;
 
 function FeatureVisual({ type }: { type: typeof features[number]["visual"] }) {
-  if (type === "curve") return <div className="feature-visual mini-chart" aria-hidden="true"><svg viewBox="0 0 320 100" preserveAspectRatio="none"><defs><linearGradient id="mini-fill" x1="0" x2="0" y1="0" y2="1"><stop stopColor="currentColor" stopOpacity=".32"/><stop offset="1" stopColor="currentColor" stopOpacity="0"/></linearGradient></defs><path className="mini-chart-fill" d="M0 94 C48 93 73 88 105 78 S162 57 196 47 S248 25 320 5 L320 100 L0 100Z"/><path className="mini-chart-line" d="M0 94 C48 93 73 88 105 78 S162 57 196 47 S248 25 320 5"/></svg><span>LV 1</span><span>LV 100</span></div>;
+  if (type === "curve") return <div className="feature-visual mini-chart" aria-hidden="true"><svg viewBox="0 0 320 100" preserveAspectRatio="none"><defs><linearGradient id="mini-fill" x1="0" x2="0" y1="0" y2="1"><stop stopColor="currentColor" stopOpacity=".28"/><stop offset="1" stopColor="currentColor" stopOpacity="0"/></linearGradient></defs><path className="mini-chart-fill" d="M0 94 C48 93 73 88 105 78 S162 57 196 47 S248 25 320 5 L320 100 L0 100Z"/><path className="mini-chart-line" d="M0 94 C48 93 73 88 105 78 S162 57 196 47 S248 25 320 5"/></svg><span>LV 1</span><span>LV 100</span></div>;
   if (type === "rank") return <div className="feature-visual mini-rank" aria-hidden="true"><div className="mini-rank-avatar"><BrandMark state="active" /></div><div><strong>LEVEL 28</strong><span>VOSS GRAVES · #12</span><i><b /></i></div></div>;
   if (type === "atomic") return <div className="feature-visual mini-events" aria-hidden="true"><span><i />XP committed <b>+86</b></span><span><i />Roles synced <b>03</b></span><span><i />Backup ready <b>OK</b></span></div>;
   if (type === "games") return <div className="feature-visual game-orbit" aria-hidden="true"><span>WORD</span><span>MATH</span><span>2× XP</span><Trophy size={25}/></div>;
@@ -25,26 +40,165 @@ function FeatureVisual({ type }: { type: typeof features[number]["visual"] }) {
 export default async function Home() {
   const session = await getSession();
   const dashboardHref = session ? "/dashboard" : "/api/auth/login";
-  return <div className="site-frame">
-    <header className="site-header shell"><Link href="/" className="brand mono"><Brand /></Link><nav><a href="#features">System</a><a href="#curve">Curve</a><a href="#architecture">Architecture</a></nav><div className="header-actions"><Link className="button compact ghost" href={dashboardHref}>{session ? "Dashboard" : "Sign in"}</Link><Link className="button compact primary" href="/api/auth/invite">Add bot<Bot size={15} /></Link></div></header>
-    <main>
-      <section className="hero shell">
-        <div className="hero-atmosphere" aria-hidden="true"><div className="aurora aurora-a"/><div className="aurora aurora-b"/><div className="animated-grid"/><svg className="hero-paths" viewBox="0 0 1200 700" preserveAspectRatio="none"><path d="M-40 530 C180 280 320 690 570 390 S930 120 1240 310"/><path d="M-40 610 C190 370 360 720 620 450 S990 220 1240 390"/><path d="M-30 430 C230 180 370 570 650 300 S1010 40 1250 220"/></svg></div>
-        <div className="hero-copy"><div className="eyebrow mono" data-hero><span className="live-dot"/>Self-hosted Discord progression</div><h1 data-hero>Leveling with a <span className="gradient-text">pulse.</span></h1><p className="lede" data-hero>A precise, expressive leveling system for communities that want control over the curve, the data, and the experience.</p><div className="hero-actions" data-hero><Link className="button primary" href="/api/auth/invite">Add Inochi to your server<Bot size={16} /></Link><Link className="button ghost" href={dashboardHref}>{session ? "Open your servers" : "Sign in with Discord"}<MoveUpRight size={16} /></Link><a className="button ghost source-button" href="https://github.com/vossgraves/Inochi" target="_blank" rel="noreferrer"><Github size={16} />Source</a></div><div className="trust-row" data-hero><span><i className="trust-icon violet"/>One shared curve</span><span><i className="trust-icon cyan"/>Atomic data</span><span><i className="trust-icon pink"/>Portable by design</span></div></div>
-        <div className="product-stage" data-hero aria-label="Example Inochi rank card">
-          <div className="orbit orbit-one"/><div className="orbit orbit-two"/><div className="orbit-node node-one"><Activity size={14}/></div><div className="orbit-node node-two"><Trophy size={14}/></div>
-          <div className="mock-rank-card" data-tilt><div className="rank-glare"/><div className="mock-avatar">VG<span>ONLINE</span></div><div className="mock-rank-main"><div className="mock-rank-top"><span>Voss Graves</span><strong><small>LEVEL</small> 28</strong></div><div className="mock-metrics"><span>RANK <b>#12</b></span><span><b>38,351</b> TOTAL XP</span></div><div className="mock-progress"><i /></div><div className="mock-rank-foot"><span>3,051 / 4,000 THIS LEVEL</span><span>949 XP TO LEVEL 29</span></div></div></div>
-          <div className="signal-card mono"><span>EVENT / MESSAGE</span><strong>+86 XP</strong><small><i />committed atomically</small></div>
-          <div className="level-toast"><Sparkles size={15}/><span><small>Next reward</small>Level 30 · Vanguard</span></div>
+  return (
+    <div className="site-frame">
+      <header className="site-header shell">
+        <Link href="/" className="brand mono"><Brand /></Link>
+        <nav>
+          <a href="#features">System</a>
+          <a href="#curve">Curve</a>
+          <a href="#architecture">Architecture</a>
+        </nav>
+        <div className="header-actions">
+          <Link className="button compact ghost" href={dashboardHref}>{session ? "Dashboard" : "Sign in"}</Link>
+          <Link className="button compact primary" href="/api/auth/invite">Add bot<Bot size={15} /></Link>
         </div>
-      </section>
-      <section className="marquee" aria-label="Inochi capabilities"><div><span>CURVES · RANK CARDS · ROLE REWARDS · CHAT GAMES · IMPORTS · BACKUPS · LEADERBOARDS · API ·</span><span aria-hidden="true">CURVES · RANK CARDS · ROLE REWARDS · CHAT GAMES · IMPORTS · BACKUPS · LEADERBOARDS · API ·</span></div></section>
-      <section className="section-block shell" id="features"><div className="section-intro" data-reveal><span className="eyebrow mono">One progression system</span><div><h2>Every surface <span className="gradient-text">agrees.</span></h2><p>The bot, dashboard, API, imports, and image renderer all use the same validated domain.</p></div></div><div className="feature-grid">{features.map(({ icon: Icon, tone, span, title, text, visual }, index) => <article className={`feature-card spotlight-card tone-${tone} feature-${span}`} key={title} data-reveal><div className="feature-card-top"><div className="feature-icon"><Icon size={19} /></div><span className="feature-number mono">0{index + 1}</span></div><FeatureVisual type={visual}/><div className="feature-copy"><h3>{title}</h3><p>{text}</p></div></article>)}</div></section>
-      <section className="curve-section" id="curve"><div className="shell" data-reveal><LandingCurve /></div></section>
-      <section className="section-block shell architecture" id="architecture"><div data-reveal><span className="eyebrow mono">Designed to leave cleanly</span><h2>Own the stack.<br/><span className="gradient-text">Keep the exit.</span></h2><p>One PostgreSQL truth connects Discord activity, the worker, dashboard, API, cards, and leaderboards. Deploy it where you want and take complete backups whenever you want.</p><Link className="text-link" href={dashboardHref}>Configure your first server <ArrowRight size={15} /></Link></div><div className="architecture-map" data-reveal><svg className="architecture-beams" viewBox="0 0 440 370" aria-hidden="true"><defs><linearGradient id="beam" x1="0" x2="1"><stop stopColor="#7c5cff"/><stop offset=".5" stopColor="#25d0f5"/><stop offset="1" stopColor="#ff5da2"/></linearGradient></defs><path d="M220 70 C220 115 90 112 90 172"/><path d="M220 70 C220 115 350 112 350 172"/><path d="M90 230 C90 290 220 260 220 320"/><path d="M350 230 C350 290 220 260 220 320"/></svg><div className="architecture-node node-discord"><Bot size={20}/><span>Discord activity</span><small>messages · commands · games</small></div><div className="architecture-node node-worker"><Gamepad2 size={20}/><span>Inochi worker</span><small>validate · calculate · reward</small></div><div className="architecture-node node-web"><Blocks size={20}/><span>Dashboard + API</span><small>configure · inspect · export</small></div><div className="architecture-node node-data"><Database size={20}/><span>PostgreSQL truth</span><small>atomic · portable · backed up</small></div></div></section>
-      <section className="process-strip shell" data-reveal><div><span>01</span><strong>Activity enters</strong><p>Messages and commands pass channel, cooldown, and privacy rules.</p></div><ArrowDownRight/><div><span>02</span><strong>Progress commits</strong><p>XP, levels, games, and rewards update in one transaction.</p></div><ArrowDownRight/><div><span>03</span><strong>Every surface updates</strong><p>Cards, roles, leaderboards, dashboard, and API stay aligned.</p></div></section>
-      <section className="final-cta"><div className="cta-aurora"/><div className="shell" data-reveal><span className="eyebrow mono">Ready when your server is</span><h2>Make progression feel <span className="gradient-text">intentional.</span></h2><p>Give your community a system that feels alive without surrendering control of the data.</p><div className="final-actions"><Link className="button primary" href="/api/auth/invite">Add Inochi to your server<Bot size={16}/></Link><Link className="button ghost" href={dashboardHref}>{session ? "Open dashboard" : "Sign in with Discord"}<ArrowRight size={16}/></Link></div></div></section>
-    </main>
-    <footer className="site-footer shell"><div className="brand mono"><Brand /></div><p>Independent, self-hosted Discord progression.</p><a href="https://github.com/vossgraves/Inochi" target="_blank" rel="noreferrer">Source</a></footer>
-  </div>;
+      </header>
+
+      <main>
+        <section className="hero shell">
+          <div className="hero-atmosphere" aria-hidden="true">
+            <div className="animated-grid"/>
+            <svg className="hero-paths" viewBox="0 0 1200 700" preserveAspectRatio="none">
+              <path d="M-40 530 C180 280 320 690 570 390 S930 120 1240 310"/>
+              <path d="M-40 610 C190 370 360 720 620 450 S990 220 1240 390"/>
+              <path d="M-30 430 C230 180 370 570 650 300 S1010 40 1250 220"/>
+            </svg>
+          </div>
+
+          <div className="hero-copy">
+            <div className="eyebrow mono" data-hero>
+              <span className="live-dot"/>Self-hosted Discord progression
+            </div>
+            <h1 data-hero>Leveling with a <span className="gradient-text">pulse.</span></h1>
+            <p className="lede" data-hero>
+              A precise, expressive leveling system for communities that want control over the curve, the data, and the experience.
+            </p>
+            <div className="hero-actions" data-hero>
+              <Link className="button primary" href="/api/auth/invite">Add Inochi to your server<Bot size={16} /></Link>
+              <Link className="button ghost" href={dashboardHref}>{session ? "Open your servers" : "Sign in with Discord"}<MoveUpRight size={16} /></Link>
+              <a className="button ghost source-button" href="https://github.com/vossgraves/Inochi" target="_blank" rel="noreferrer"><Github size={16} />Source</a>
+            </div>
+            <div className="trust-row" data-hero>
+              <span><i className="trust-icon violet"/>One shared curve</span>
+              <span><i className="trust-icon cyan"/>Atomic data</span>
+              <span><i className="trust-icon pink"/>Portable by design</span>
+            </div>
+          </div>
+
+          <div className="product-stage" data-hero aria-label="Example Inochi rank card">
+            <div className="orbit orbit-one"/><div className="orbit orbit-two"/>
+            <div className="orbit-node node-one"><Activity size={14}/></div>
+            <div className="orbit-node node-two"><Trophy size={14}/></div>
+            <div className="mock-rank-card" data-tilt>
+              <div className="rank-glare"/>
+              <div className="mock-avatar">VG<span>ONLINE</span></div>
+              <div className="mock-rank-main">
+                <div className="mock-rank-top"><span>Voss Graves</span><strong><small>LEVEL</small> 28</strong></div>
+                <div className="mock-metrics"><span>RANK <b>#12</b></span><span><b>38,351</b> TOTAL XP</span></div>
+                <div className="mock-progress"><i /></div>
+                <div className="mock-rank-foot"><span>3,051 / 4,000 THIS LEVEL</span><span>949 XP TO LEVEL 29</span></div>
+              </div>
+            </div>
+            <div className="signal-card mono"><span>EVENT / MESSAGE</span><strong>+86 XP</strong><small><i />committed atomically</small></div>
+            <div className="level-toast"><Sparkles size={15}/><span><small>Next reward</small>Level 30 · Vanguard</span></div>
+          </div>
+        </section>
+
+        <section className="marquee" aria-label="Inochi capabilities">
+          <div>
+            <span>CURVES · RANK CARDS · ROLE REWARDS · CHAT GAMES · IMPORTS · BACKUPS · LEADERBOARDS · API ·</span>
+            <span aria-hidden="true">CURVES · RANK CARDS · ROLE REWARDS · CHAT GAMES · IMPORTS · BACKUPS · LEADERBOARDS · API ·</span>
+          </div>
+        </section>
+
+        <section className="section-block shell" id="features">
+          <div className="section-intro" data-reveal>
+            <span className="eyebrow mono">One progression system</span>
+            <div>
+              <h2>Every surface <span className="gradient-text">agrees.</span></h2>
+              <p>The bot, dashboard, API, imports, and image renderer all use the same validated domain.</p>
+            </div>
+          </div>
+          <div className="feature-grid">
+            {features.map(({ icon: Icon, tone, span, title, text, visual }, index) => (
+              <article className={`feature-card spotlight-card tone-${tone} feature-${span}`} key={title} data-reveal>
+                <div className="feature-card-top">
+                  <div className="feature-icon"><Icon size={19} /></div>
+                  <span className="feature-number mono">0{index + 1}</span>
+                </div>
+                <FeatureVisual type={visual}/>
+                <div className="feature-copy"><h3>{title}</h3><p>{text}</p></div>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="curve-section" id="curve">
+          <div className="shell" data-reveal><LandingCurve /></div>
+        </section>
+
+        <section className="section-block shell architecture" id="architecture">
+          <div data-reveal>
+            <span className="eyebrow mono">Designed to leave cleanly</span>
+            <h2>Own the stack.<br/><span className="gradient-text">Keep the exit.</span></h2>
+            <p>One PostgreSQL truth connects Discord activity, the worker, dashboard, API, cards, and leaderboards. Deploy it where you want and take complete backups whenever you want.</p>
+            <Link className="text-link" href={dashboardHref}>Configure your first server <ArrowRight size={15} /></Link>
+          </div>
+          <div className="architecture-map" data-reveal>
+            <svg className="architecture-beams" viewBox="0 0 440 370" aria-hidden="true">
+              <defs><linearGradient id="beam" x1="0" x2="1"><stop stopColor="#7c5cff"/><stop offset=".5" stopColor="#25d0f5"/><stop offset="1" stopColor="#ff5da2"/></linearGradient></defs>
+              <path d="M220 70 C220 115 90 112 90 172"/>
+              <path d="M220 70 C220 115 350 112 350 172"/>
+              <path d="M90 230 C90 290 220 260 220 320"/>
+              <path d="M350 230 C350 290 220 260 220 320"/>
+            </svg>
+            <div className="architecture-node node-discord"><Bot size={20}/><span>Discord activity</span><small>messages · commands · games</small></div>
+            <div className="architecture-node node-worker"><Gamepad2 size={20}/><span>Inochi worker</span><small>validate · calculate · reward</small></div>
+            <div className="architecture-node node-web"><Blocks size={20}/><span>Dashboard + API</span><small>configure · inspect · export</small></div>
+            <div className="architecture-node node-data"><Database size={20}/><span>PostgreSQL truth</span><small>atomic · portable · backed up</small></div>
+          </div>
+        </section>
+
+        <section className="process-strip shell" data-reveal>
+          <div>
+            <span>01</span>
+            <strong>Activity enters</strong>
+            <p>Messages and commands pass channel, cooldown, and privacy rules.</p>
+          </div>
+          <ArrowRight size={16} className="process-arrow"/>
+          <div>
+            <span>02</span>
+            <strong>Progress commits</strong>
+            <p>XP, levels, games, and rewards update in one transaction.</p>
+          </div>
+          <ArrowRight size={16} className="process-arrow"/>
+          <div>
+            <span>03</span>
+            <strong>Every surface updates</strong>
+            <p>Cards, roles, leaderboards, dashboard, and API stay aligned.</p>
+          </div>
+        </section>
+
+        <section className="final-cta">
+          <div className="cta-aurora"/>
+          <div className="shell" data-reveal>
+            <span className="eyebrow mono">Ready when your server is</span>
+            <h2>Make progression feel <span className="gradient-text">intentional.</span></h2>
+            <p>Give your community a system that feels alive without surrendering control of the data.</p>
+            <div className="final-actions">
+              <Link className="button primary" href="/api/auth/invite">Add Inochi to your server<Bot size={16}/></Link>
+              <Link className="button ghost" href={dashboardHref}>{session ? "Open dashboard" : "Sign in with Discord"}<ArrowRight size={16}/></Link>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer className="site-footer shell">
+        <div className="brand mono"><Brand /></div>
+        <p>Independent, self-hosted Discord progression.</p>
+        <a href="https://github.com/vossgraves/Inochi" target="_blank" rel="noreferrer">Source</a>
+      </footer>
+    </div>
+  );
 }

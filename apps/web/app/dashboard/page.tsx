@@ -7,6 +7,7 @@ import { BrandMark } from "../../components/brand-mark";
 
 export default async function Dashboard() {
   const session = await getSession();
+
   if (!session) {
     return (
       <main className="route-state">
@@ -58,12 +59,66 @@ export default async function Dashboard() {
     );
   }
 
-  return <DashboardShell>
-    <div className="page-heading" data-reveal><div><div className="eyebrow mono">Workspace / {session.username}</div><h1>Your <span className="gradient-text">servers</span></h1><p>Choose a community where you have Manage Server permission.</p></div><div className="heading-chip"><Search size={14}/>{guilds.length} available</div></div>
-    <div className="guild-grid">{guilds.map((guild, index) => <Link className={`guild-card spotlight-card guild-tone-${index % 5}`} href={`/dashboard/${guild.id}`} key={guild.id} data-reveal>
-      <div className="guild-card-top">{guild.icon ? <img className="guild-icon" src={`https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png?size=128`} alt="" /> : <div className="guild-icon">{guild.name.slice(0, 1).toUpperCase()}</div>}<span className={`role-badge ${guild.owner ? "owner" : ""}`}>{guild.owner && <Crown size={11}/>} {guild.owner ? "Owner" : "Manager"}</span></div>
-      <div><strong>{guild.name}</strong><span className="guild-id mono">{guild.id}</span></div><ArrowUpRight className="guild-arrow" size={18}/>
-    </Link>)}</div>
-    {!guilds.length && <BrandedEmptyState eyebrow="No manager signal" title="No manageable servers found">Discord did not return a server where this account has Manage Server permission.</BrandedEmptyState>}
-  </DashboardShell>;
+  return (
+    <DashboardShell>
+      <div className="page-heading" data-reveal>
+        <div>
+          <div className="eyebrow mono">Workspace / {session.username}</div>
+          <h1>Your <span className="gradient-text">servers</span></h1>
+          <p>Choose a community where you have Manage Server permission.</p>
+        </div>
+        <div className="heading-chip">
+          <Search size={14} aria-hidden="true" />
+          <span>{guilds.length} available</span>
+        </div>
+      </div>
+
+      {guilds.length > 0 ? (
+        <ul className="guild-grid" role="list">
+          {guilds.map((guild, index) => (
+            <li key={guild.id}>
+              <Link
+                className={`guild-card spotlight-card guild-tone-${index % 5}`}
+                href={`/dashboard/${guild.id}`}
+                data-reveal
+              >
+                <div className="guild-card-top">
+                  {guild.icon ? (
+                    <img
+                      className="guild-icon"
+                      src={`https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png?size=128`}
+                      alt=""
+                      width={56}
+                      height={56}
+                    />
+                  ) : (
+                    <div className="guild-icon" aria-hidden="true">
+                      {guild.name.slice(0, 1).toUpperCase()}
+                    </div>
+                  )}
+                  <span className={`role-badge ${guild.owner ? "owner" : ""}`}>
+                    {guild.owner && <Crown size={11} aria-hidden="true" />}
+                    {guild.owner ? "Owner" : "Manager"}
+                  </span>
+                </div>
+                <div>
+                  <strong>{guild.name}</strong>
+                  <span className="guild-id mono">{guild.id}</span>
+                </div>
+                <ArrowUpRight className="guild-arrow" size={18} aria-hidden="true" />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <BrandedEmptyState
+          eyebrow="No manager signal"
+          title="No manageable servers found"
+        >
+          Discord did not return a server where this account has Manage Server
+          permission.
+        </BrandedEmptyState>
+      )}
+    </DashboardShell>
+  );
 }
