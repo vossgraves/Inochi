@@ -68,8 +68,14 @@ export function BrandMark({
         strokeOpacity={state === "paused" ? 0.25 : 0.45}
         strokeWidth="2"
       />
+      {/*
+        The glyph's true ink bbox is x 12.25-93.25, y 10.25-99.52, so its centre
+        is (52.75, 54.89), not the origin. The translate is therefore
+        centre - scale * glyphCentre, not an eyeballed offset. Recompute both
+        values together if the scale ever changes.
+      */}
       <g
-        transform="translate(11 3) scale(.42)"
+        transform="translate(9.8 8.9) scale(.42)"
         fill="none"
         stroke="currentColor"
         strokeWidth="6"

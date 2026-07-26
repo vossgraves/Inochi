@@ -39,7 +39,9 @@ export default function OpenGraphImage() {
             }}
           >
             <svg viewBox="0 0 109 109" width="170" height="170">
+              {/* Glyph centre is (52.75, 54.89); this viewBox centre is 54.5. */}
               <g
+                transform="translate(1.75 -0.39)"
                 fill="none"
                 stroke="#f4f1ea"
                 strokeWidth="5"
