@@ -12,6 +12,7 @@
     "jsx": "preserve",
     "baseUrl": ".",
     "paths": {
+      "@/*": ["apps/web/*"],
       "@inochi/core": ["packages/core/src/index.ts"],
       "@inochi/api-contract": ["packages/api-contract/src/index.ts"],
       "@inochi/api-contract/openapi": ["packages/api-contract/src/openapi.ts"],
