@@ -1,0 +1,24 @@
+[package]
+name = "inochi-bot"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Inochi Discord leveling bot (Rust)"
+
+[[bin]]
+name = "inochi-bot"
+path = "src/main.rs"
+
+[dependencies]
+inochi-core = { workspace = true }
+inochi-db = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+poise = "0.6"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "chrono"] }
+rand = "0.8"
+image = { version = "0.25", default-features = false, features = ["png"] }
+fontdue = "0.9"

@@ -1,0 +1,24 @@
+[package]
+name = "inochi-db"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Inochi PostgreSQL layer (sqlx, Neon-compatible)"
+
+[dependencies]
+inochi-core = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dependencies.sqlx]
+version = "0.8"
+default-features = false
+features = ["runtime-tokio", "tls-rustls", "postgres", "macros", "migrate", "json", "chrono"]
+
+[dependencies.chrono]
+version = "0.4"
+default-features = false
+features = ["clock", "std"]

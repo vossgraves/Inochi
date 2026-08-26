@@ -1,112 +1,90 @@
-# Inochi
+# Inochi (Rust + Svelte)
 
-Inochi is a self-hosted Discord leveling bot and dashboard built with TypeScript, PostgreSQL, a monochrome Next.js dashboard, atomic XP updates, image chat games, rank cards, voting boosts, backups, and migration tools.
+A Rust rewrite of the [Inochi](https://github.com/vossgraves/Inochi) Discord
+leveling bot, with a Svelte 5 dashboard. Same product, a fraction of the
+runtime footprint: one statically-linked bot binary, one API binary, no Node
+in production.
 
-Inochi is source-available for personal, educational, and non-commercial self-hosting. Redistribution, public derivative repositories, hosted services, and commercial use require written permission; see `LICENSE` for the complete terms.
+## Status — phase 1 (core leveling)
 
-## Architecture
+Implemented now:
 
-- `apps/bot`: Discord.js worker and application commands
-- `apps/web`: Next.js dashboard, OAuth, settings and public leaderboards
-- `packages/core`: validated settings, level curve and multiplier engine
-- `packages/database`: Drizzle schema, PostgreSQL migrations and repositories
-- `packages/importers`: JSON, CSV, MEE6 and public-message import adapters
-- `packages/rank-card`: monochrome PNG rank-card renderer
+- **Atomic XP engine** — message XP is awarded through a single PostgreSQL
+  upsert (`INSERT … ON CONFLICT DO UPDATE … RETURNING`), so concurrent gateway
+  events can never overwrite each other. Weekly XP resets automatically on ISO
+  week rollover.
+- **Level curve** — MEE6-compatible curve in `crates/core`, unit-tested for
+  cumulative/inverse consistency.
+- **Validated settings** — guild configuration stored as validated JSONB,
+  identical rules in bot and dashboard; multipliers stack multiplicatively;
+  channel/role blacklists.
+- **Bot commands** — `/setup`, `/rank`, `/rankcard` (rendered PNG),
+  `/top`, `/weekly`, `/play scramble|math` (chat games, 50 XP win bonus),
+  `/addxp` and `/importcsv` (manager-only), `/backup export|import`
+  (manager-only), level-up announcements, per-guild cooldowns.
+- **Dashboard API** — axum server: `/api/health`, leaderboard, settings
+  get/put with audit trail, bearer-token auth, CORS.
+- **Svelte 5 dashboard** — leaderboard viewer (all-time/weekly), settings
+  editor with multiplier management, health/token panel.
 
-The production applications and compatibility tools are implemented in TypeScript. Generated JavaScript output remains untracked and is used only when packaging TypeScript libraries for Node.js.
+Not yet ported from the TypeScript original: top.gg vote boosts (needs a
+top.gg token) and Discord OAuth session auth for the dashboard (phase 2 —
+a shared admin token covers it today).
 
-## Requirements
+## Layout
 
-- Node.js 22
-- PostgreSQL 16 recommended
-- A Discord application with the Server Members and Message Content privileged intents enabled
+```
+crates/core    level curve, multipliers, settings validation (pure logic)
+crates/db      sqlx + PostgreSQL (Neon-compatible), migrations, repositories
+apps/bot       poise/serenity Discord worker
+apps/api       axum REST API for the dashboard
+apps/dashboard Svelte 5 + Vite SPA
+```
 
 ## Setup
 
-1. Copy `.env.example` to `.env` and fill in all Discord and session values.
-2. Start PostgreSQL with `docker compose up -d postgres`, or provide any PostgreSQL connection in `DATABASE_URL`.
-3. Install dependencies with `npm ci`.
-4. Apply the schema with `npm run db:migrate`.
-5. Add the exact `DISCORD_REDIRECT_URI` to the Discord developer portal.
-6. Deploy slash commands with `npm run deploy:commands`.
-7. Start development services with `npm run dev`.
+1. Copy `.env.example` to `.env` and fill in:
+   - `DATABASE_URL` — your Neon pooler connection string
+     (`...?sslmode=require`). Connections always use TLS (rustls).
+   - `DISCORD_TOKEN` — from the Discord developer portal, with Server Members
+     and Message Content privileged intents enabled.
+   - `ADMIN_TOKEN` — long random string the dashboard will use as its bearer
+     token.
+2. Rust side:
 
-Production services can be built with `npm run build`, then run independently:
+   ```
+   cargo run --release -p inochi-bot   # gateway worker + slash commands
+   cargo run --release -p inochi-api   # dashboard API on API_PORT
+   ```
 
-```sh
-npm run start -w @inochi/web
-npm run start -w @inochi/bot
-```
+   Migrations are embedded and applied automatically at startup.
 
-## Railway deployment
+3. Dashboard:
 
-Create one Railway project with PostgreSQL and two services sourced from the repository root. In each service's source settings, set the Railway config file path shown below; the committed files select Railpack and provide all build, start, migration, restart, and health-check behavior.
+   ```
+   cd apps/dashboard
+   npm install
+   npm run dev        # http://localhost:5173
+   ```
 
-1. **Web service:** set the config path to `/railway.web.toml` and generate a public domain.
-2. **Bot service:** set the config path to `/railway.bot.toml`; do not generate a domain or add an HTTP health check.
-3. Reference the PostgreSQL service's internal `DATABASE_URL` from both services.
-4. Set `APP_URL` in both services to the web domain, without a trailing slash.
-5. Set `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_REDIRECT_URI`, and a 32-or-more-character `SESSION_SECRET` on the web service.
-6. Set `DISCORD_TOKEN` and `DISCORD_CLIENT_ID` on the bot service.
-7. Set `DISCORD_REDIRECT_URI` to `https://<web-domain>/api/auth/callback` and register the exact value in Discord's OAuth2 settings.
-8. Run `npm run deploy:commands` and `npm run deploy:emojis` once with the bot service variables after deployment.
+   Set `VITE_API_BASE` when building for production.
 
-The web manifest applies database migrations before each release and checks configuration plus PostgreSQL at `/api/health`. The bot verifies PostgreSQL before connecting to Discord. Optional `TOPGG_WEBHOOK_SECRET` belongs to the web service and `TOPGG_BOT_ID` belongs to the bot service. Set the same optional `S3_*` variables on both services when dashboard rank-background uploads are enabled.
-
-The homepage's `/api/auth/invite` route creates a guild-install OAuth URL with the `bot` and `applications.commands` scopes. It requests only View Channels, Send Messages, Send Messages in Threads, Embed Links, Attach Files, Read Message History, Use External Emojis, and Manage Roles; it does not request Administrator.
-
-The web build intentionally opens no database connection. The connection is created lazily when Railway starts serving requests.
-
-## PostgreSQL model
-
-Guild configuration is validated JSONB because settings evolve frequently. Member XP, weekly XP, cooldowns, game rounds, imports, OAuth sessions and audit events use normalized tables. Message XP is awarded with an atomic PostgreSQL upsert so concurrent gateway events cannot overwrite one another.
-
-OAuth access tokens are encrypted at rest with AES-256-GCM using `SESSION_SECRET`. Browser sessions use random opaque tokens stored only as hashes, and cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` in production.
-
-## Chat games and voting
-
-Inochi supports persistent image-based word and math races. Configure one to three winners and a separate XP reward for each place, answer windows, hints, math difficulty, channels, intervals, and random or round-robin rotation in the dashboard. Winner placement and XP are committed together in PostgreSQL so concurrent correct answers cannot claim the same place.
-
-Set a top.gg webhook URL to `/api/webhooks/votes/topgg` and use `TOPGG_WEBHOOK_SECRET` as its authorization value. Verified voters receive the configured chat-XP multiplier for the configured duration. Vote boosts never alter manual or game rewards.
-
-Rank background uploads use S3-compatible storage. Configure `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, optional `S3_REGION`/`S3_ENDPOINT`, and expose objects through `S3_PUBLIC_URL`.
-
-## Setup, logs, and scheduled backups
-
-When Inochi joins a server it sends one welcome message to a writable system/setup channel, with an owner-DM fallback. `/setup` opens the guided dashboard flow; XP remains paused until a manager completes it. Application-owned emojis can be provisioned idempotently with `npm run deploy:emojis` and always have Unicode fallbacks.
-
-Managers can configure one private audit channel with independent command, level-up, admin, error, and backup toggles. Scheduled full backups can run daily or weekly, are retained in PostgreSQL for the configured period, and are sent as compressed attachments only when the channel is not visible to `@everyone` and the file fits Discord's upload limit.
-
-## Backups
-
-The dashboard can create and download complete, versioned Inochi backups. Uploaded backups are validated and previewed before restore. Restore modes are `settings`, `merge`, and `replace`; all create a pre-restore safety snapshot and audit event. OAuth sessions, API secrets, and webhook secrets are never exported.
-
-## Imports
-
-The dashboard accepts generic legacy ID/XP JSON, Lurkr's official JSON export, and ID/XP CSV. `/import` opens a private Components V2 workflow for MEE6, Arcane, ProBot, AmariBot, Lurkr, Carl-bot, and Tatsu.
-
-Inochi verifies that the selected source bot is installed first. Known official, premium, and alternate identities are detected automatically; managers can explicitly select an installed custom/premium bot. Verified public MEE6 and Lurkr leaderboards are imported directly. Other providers fall back to provider-specific public message capture in the selected channel for 30 minutes.
-
-Select **Review** after visiting every public leaderboard page, inspect exact and level-derived counts, choose the XP behavior, then select **Apply** twice to confirm. Inochi cannot read ephemeral messages, bypass protected web pages, click another bot's components, or safely import image-only/user-name-only leaderboards. Official exports remain preferred. If a source exposes only levels, Inochi uses the reviewed provider preset to calculate minimum XP and marks the record approximate.
-
-MEE6, Lurkr, and AmariBot imports offer their verified progression preset during review. The preset is preselected but can be disabled before confirmation; unrelated server settings are never changed. Sources without a verified curve must expose exact XP, and Tatsu server score remains an explicitly disclosed one-to-one conversion. Every apply creates a safety backup and commits the selected settings, XP changes, audit event, and persistent-leaderboard refresh atomically.
-
-## Commands
-
-- `/rank`, `/top`, `/weekly`, `/winner`, `/calculate`, `/sync`
-- `/addxp`, `/clear`, `/config`, `/rewardrole`, `/multiplier`
-- `/joinrole`, `/blacklist`, `/reset`, `/refresh`
-- `/word`, `/maths`, `/coinflip`, `/vote`, `/xpchannel`
-- `/privacy`, `/colour`, `/background`, `/wrapped`, `/diagnose`, `/help`
-- `/import`, `/botstatus`
-- User context menus: **Check XP** and **View on leaderboard**
-
-Developer remote-evaluation and arbitrary-database commands from the legacy project were intentionally removed.
+4. Slash commands register globally on first bot boot.
 
 ## Verification
 
-```sh
-npm run typecheck
-npm test
-npm run build
 ```
+cargo test -p inochi-core     # curve + settings engine tests
+cargo check --workspace
+cd apps/dashboard && npm run build
+```
+
+## Notes
+
+- The API's phase-1 auth is a single admin bearer token; it exists so the
+  dashboard works today. Phase 2 replaces it with Discord OAuth sessions
+  hashed at rest, matching upstream behavior.
+- Manual `/addxp` rewards intentionally bypass cooldowns and multipliers, as
+  upstream.
+- Guild XP stays paused until settings exist for that guild (the bot ignores
+  unknown guilds until the first save or `/addxp`).

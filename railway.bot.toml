@@ -1,8 +1,0 @@
-[build]
-builder = "RAILPACK"
-buildCommand = "npm run typecheck && npm run build -w @inochi/bot"
-
-[deploy]
-preDeployCommand = "npm run db:migrate"
-startCommand = "npm run start -w @inochi/bot"
-restartPolicyType = "ALWAYS"

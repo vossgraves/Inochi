@@ -1,0 +1,11 @@
+[package]
+name = "inochi-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Inochi level curve, multiplier and settings engine (pure logic, no I/O)"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

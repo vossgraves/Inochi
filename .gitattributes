@@ -1,6 +1,3 @@
-# Auto detect text files and perform LF normalization
-* text=auto
-
-# Generated metadata is retained for reproducible framework and schema builds.
-packages/database/drizzle/meta/** linguist-generated=true
-apps/web/next-env.d.ts linguist-generated=true
+# Keep GitHub language stats honest: generated files don't count.
+Cargo.lock linguist-generated=true
+apps/dashboard/package-lock.json linguist-generated=true

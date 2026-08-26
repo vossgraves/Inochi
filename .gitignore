@@ -1,9 +1,17 @@
-node_modules
-json/auto
+# Rust
+/target/
+
+# Node
+node_modules/
+dist/
+
+# Secrets — never commit
 .env
-.env.*
-!.env.example
-.vscode
-.next
-dist
-*.tsbuildinfo
+
+# Local tooling state
+.swarm/
+.opencode/
+
+# Logs / OS noise
+*.log
+.DS_Store
