@@ -4,6 +4,7 @@ pub mod backup;
 pub mod error;
 pub mod members;
 pub mod repos;
+pub mod rewards;
 
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;

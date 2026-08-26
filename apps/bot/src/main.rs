@@ -96,6 +96,20 @@ async fn on_message(
         let before_level = inochi_core::level_for_xp((row.xp - amount) as u64);
         let now_level = inochi_core::level_for_xp(row.xp as u64);
         if now_level > before_level {
+            // Grant the highest configured level reward.
+            if let Ok(Some(role_id)) =
+                inochi_db::rewards::role_for_level(&data.pool, guild_id, now_level).await
+            {
+                if let Ok(member) = message.member(&ctx.http).await {
+                    let _ = member
+                        .add_role(
+                            &ctx.http,
+                            serenity::RoleId::new(role_id as u64),
+                        )
+                        .await;
+                }
+            }
+
             if let Some(announce_channel) = settings.announce_channel_id {
                 let channel = serenity::ChannelId::new(announce_channel as u64);
                 let _ = channel
@@ -110,6 +124,39 @@ async fn on_message(
             }
         }
         tracing::debug!(guild_id, user_id, amount, xp = row.xp, "awarded xp");
+    }
+    Ok(())
+}
+
+async fn on_member_join(
+    ctx: &serenity::Context,
+    data: &Data,
+    member: &serenity::Member,
+) -> Result<(), Error> {
+    if member.user.bot {
+        return Ok(());
+    }
+    let guild_id = member.guild_id;
+    let settings =
+        match inochi_db::repos::get_settings(&data.pool, guild_id.get() as i64).await {
+            Ok(s) => s,
+            Err(_) => return Ok(()),
+        };
+    let server = ctx
+        .cache
+        .guild(guild_id)
+        .map(|g| g.name.clone())
+        .unwrap_or_else(|| "the server".into());
+    if let Some(text) = settings.render_welcome(
+        &member.user.mention().to_string(),
+        &member.user.name,
+        &server,
+    ) {
+        if let Some(channel_id) = settings.welcome_channel_id {
+            let _ = serenity::ChannelId::new(channel_id as u64)
+                .say(&ctx.http, text)
+                .await;
+        }
     }
     Ok(())
 }
@@ -141,11 +188,15 @@ async fn main() {
         .options(poise::FrameworkOptions {
             commands: vec![
                 commands::setup(),
+                commands::help(),
                 commands::rank(),
                 commands::rankcard(),
                 commands::top(),
                 commands::weekly(),
+                commands::daily(),
+                commands::coinflip(),
                 commands::play(),
+                commands::rewards(),
                 commands::addxp(),
                 commands::importcsv(),
                 commands::backup(),
@@ -156,8 +207,14 @@ async fn main() {
             },
             event_handler: |ctx, event, _framework, data| {
                 Box::pin(async move {
-                    if let serenity::FullEvent::Message { new_message } = event {
-                        on_message(ctx, data, new_message).await?;
+                    match event {
+                        serenity::FullEvent::Message { new_message } => {
+                            on_message(ctx, data, new_message).await?;
+                        }
+                        serenity::FullEvent::GuildMemberAddition { new_member } => {
+                            on_member_join(ctx, data, &new_member).await?;
+                        }
+                        _ => {}
                     }
                     Ok(())
                 })

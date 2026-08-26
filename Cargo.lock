@@ -1104,6 +1104,7 @@ dependencies = [
 name = "inochi-bot"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "fontdue",
  "image",
  "inochi-core",

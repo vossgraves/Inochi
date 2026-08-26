@@ -15,6 +15,12 @@ pub struct MemberRow {
     #[allow(dead_code)]
     pub week_start: chrono::NaiveDate,
     pub last_awarded_at: Option<DateTime<Utc>>,
+    /// Current /daily streak length.
+    #[allow(dead_code)]
+    pub daily_streak: i32,
+    /// Last time /daily was claimed.
+    #[allow(dead_code)]
+    pub last_daily: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -56,7 +62,8 @@ pub async fn award_xp(
                 updated_at      = now()
             WHERE members.last_awarded_at IS NULL
                OR members.last_awarded_at <= now() - make_interval(secs => $4)
-            RETURNING guild_id, user_id, xp, weekly_xp, week_start, last_awarded_at
+            RETURNING guild_id, user_id, xp, weekly_xp, week_start, last_awarded_at,
+                      daily_streak, last_daily
         )
         SELECT * FROM inserted
         "#,
@@ -81,14 +88,99 @@ pub async fn get_member(
         r#"
         INSERT INTO members (guild_id, user_id) VALUES ($1, $2)
         ON CONFLICT (guild_id, user_id) DO UPDATE SET user_id = EXCLUDED.user_id
-        RETURNING guild_id, user_id, xp, weekly_xp, week_start, last_awarded_at
-        "#,
+        RETURNING guild_id, user_id, xp, weekly_xp, week_start, last_awarded_at,
+                  daily_streak, last_daily
+        "#
     )
     .bind(guild_id)
     .bind(user_id)
     .fetch_one(pool)
     .await?;
     Ok(row)
+}
+
+/// Outcome of a successful `/daily` claim.
+#[derive(Debug)]
+pub struct DailyClaim {
+    pub row: MemberRow,
+    /// Streak after this claim.
+    pub streak: i32,
+    /// Whether the streak continued (claimed within 44 h of the last one).
+    pub streak_continued: bool,
+}
+
+/// Claim the daily reward atomically.
+///
+/// Returns `None` while the member is still inside the 20-hour claim
+/// window. Streak continues when the previous claim is within 44 hours,
+/// otherwise it resets to 1.
+pub async fn claim_daily(
+    pool: &PgPool,
+    guild_id: i64,
+    user_id: i64,
+    base_amount: i64,
+) -> DbResult<Option<DailyClaim>> {
+    let row = sqlx::query_as::<_, MemberRow>(
+        r#"
+        WITH claimed AS (
+            INSERT INTO members (guild_id, user_id, xp, weekly_xp, week_start,
+                                 daily_streak, last_daily)
+            VALUES ($1, $2, $3, $3, date_trunc('week', now())::date, 1, now())
+            ON CONFLICT (guild_id, user_id) DO UPDATE SET
+                xp           = CASE WHEN members.last_daily <= now() - interval '20 hours'
+                                    THEN members.xp + EXCLUDED.xp ELSE members.xp END,
+                weekly_xp    = CASE
+                    WHEN members.last_daily <= now() - interval '20 hours'
+                         AND members.week_start = date_trunc('week', now())::date
+                        THEN members.weekly_xp + EXCLUDED.weekly_xp
+                    ELSE CASE WHEN members.last_daily <= now() - interval '20 hours'
+                              THEN EXCLUDED.weekly_xp ELSE members.weekly_xp END
+                END,
+                daily_streak = CASE WHEN members.last_daily >= now() - interval '44 hours'
+                                    THEN members.daily_streak + 1 ELSE 1 END,
+                last_daily   = now(),
+                updated_at   = now()
+            WHERE members.last_daily IS NULL
+               OR members.last_daily <= now() - interval '20 hours'
+            RETURNING guild_id, user_id, xp, weekly_xp, week_start, last_awarded_at,
+                      daily_streak, last_daily
+        )
+        SELECT * FROM claimed
+        "#,
+    )
+    .bind(guild_id)
+    .bind(user_id)
+    .bind(base_amount)
+    .fetch_optional(pool)
+    .await?;
+
+    let Some(row) = row else { return Ok(None) };
+    let streak = row.daily_streak;
+    // A brand-new row starts at streak 1 with no prior claim; anything that
+    // already had a streak and grew means the chain continued.
+    let continued = streak > 1;
+    Ok(Some(DailyClaim { row, streak, streak_continued: continued }))
+}
+
+/// Add XP directly, bypassing cooldowns and weekly-window logic.
+///
+/// Used for streak bonuses and other policy-side rewards.
+pub async fn add_xp_flat(
+    pool: &PgPool,
+    guild_id: i64,
+    user_id: i64,
+    amount: i64,
+) -> DbResult<()> {
+    sqlx::query(
+        "UPDATE members SET xp = xp + $3, weekly_xp = weekly_xp + $3, updated_at = now()
+         WHERE guild_id = $1 AND user_id = $2",
+    )
+    .bind(guild_id)
+    .bind(user_id)
+    .bind(amount)
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 /// Absolute XP leaderboard for a guild.

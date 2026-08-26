@@ -170,6 +170,199 @@ fn reply_ephemeral() -> poise::CreateReply {
     poise::CreateReply::default().ephemeral(true)
 }
 
+/// Base XP granted by a successful /daily claim.
+const DAILY_BASE: i64 = 100;
+/// Extra XP per day of streak, capped.
+const DAILY_STREAK_BONUS: i64 = 25;
+/// Maximum streak bonus steps.
+const DAILY_STREAK_CAP: u32 = 6;
+
+/// List every Inochi command.
+#[poise::command(slash_command)]
+pub async fn help(ctx: Context<'_>) -> Result<(), crate::Error> {
+    let embed = serenity::CreateEmbed::new()
+        .title("Inochi — commands")
+        .colour((0xEE, 0xEE, 0xEE))
+        .field(
+            "Leveling",
+            "`/rank` — your level and XP\n`/rankcard` — card image\n`/top`, `/weekly` — leaderboards\n`/daily` — claim daily XP, keep the streak",
+            false,
+        )
+        .field(
+            "Games",
+            "`/play scramble` — unscramble the word\n`/play math` — quick math\n`/coinflip` — flip a coin",
+            false,
+        )
+        .field(
+            "Managers",
+            "`/setup` — enable tracking\n`/addxp` — grant XP\n`/rewards set|remove|list` — level roles\n`/importcsv` — import user_id,xp CSV\n`/backup export|import` — full data",
+            false,
+        )
+        .footer(serenity::CreateEmbedFooter::new("Dashboard: tune XP rates, multipliers and welcomes from the web UI"));
+    poise::send_reply(ctx, reply().embed(embed)).await?;
+    Ok(())
+}
+
+/// Claim your daily XP and grow the streak.
+#[poise::command(slash_command)]
+pub async fn daily(ctx: Context<'_>) -> Result<(), crate::Error> {
+    let Some(guild_id) = ctx.guild_id() else {
+        poise::say_reply(ctx, "This command only works in servers.").await?;
+        return Ok(());
+    };
+    let gid = guild_id.get() as i64;
+    let uid = ctx.author().id.get() as i64;
+
+    inochi_db::repos::ensure_guild(&ctx.data().pool, gid).await?;
+
+    let claim =
+        inochi_db::members::claim_daily(&ctx.data().pool, gid, uid, DAILY_BASE).await?;
+    let Some(claim) = claim else {
+        // Still inside the window — report time remaining.
+        let member = inochi_db::members::get_member(&ctx.data().pool, gid, uid).await?;
+        let remaining = member
+            .last_daily
+            .map(|t| t + chrono::Duration::hours(20) - chrono::Utc::now())
+            .unwrap_or_default();
+        let hours = remaining.num_hours().max(0);
+        let minutes = remaining.num_minutes().max(0) % 60;
+        poise::say_reply(
+            ctx,
+            format!("You already claimed today. Next claim in **{hours}h {minutes}m**."),
+        )
+        .await?;
+        return Ok(());
+    };
+
+    let bonus_steps = (claim.streak.max(1) - 1).min(DAILY_STREAK_CAP as i32);
+    let bonus = i64::from(bonus_steps) * DAILY_STREAK_BONUS;
+    if bonus > 0 {
+        // Streak bonus rides outside the cooldown path by design.
+        inochi_db::members::add_xp_flat(&ctx.data().pool, gid, uid, bonus).await?;
+    }
+
+    let streak_note = if claim.streak_continued {
+        format!("Streak **{}** days.", claim.streak)
+    } else if claim.streak > 1 {
+        format!("Streak reset — back to **{}**.", claim.streak)
+    } else {
+        "Start of a streak — come back tomorrow!".into()
+    };
+    poise::say_reply(
+        ctx,
+        format!(
+            "{} claimed **{} XP** (+{} streak bonus). {}",
+            ctx.author().mention(),
+            DAILY_BASE + bonus,
+            bonus,
+            streak_note
+        ),
+    )
+    .await?;
+    Ok(())
+}
+
+/// Flip a coin.
+#[poise::command(slash_command)]
+pub async fn coinflip(ctx: Context<'_>) -> Result<(), crate::Error> {
+    let result = if rand::random() { "Heads" } else { "Tails" };
+    poise::say_reply(ctx, format!("The coin landed on **{result}**.")).await?;
+    Ok(())
+}
+
+// ---------- level role rewards ----------
+
+/// Configure automatic level role rewards.
+#[poise::command(
+    slash_command,
+    default_member_permissions = "MANAGE_GUILD",
+    subcommands("rewards_set", "rewards_remove", "rewards_list")
+)]
+pub async fn rewards(_: Context<'_>) -> Result<(), crate::Error> {
+    Ok(())
+}
+
+/// Grant a role when members reach a level.
+#[poise::command(slash_command)]
+pub async fn rewards_set(
+    ctx: Context<'_>,
+    #[description = "Level threshold"] #[min = 1] #[max = 500] level: i32,
+    #[description = "Role to grant"] role: serenity::Role,
+) -> Result<(), crate::Error> {
+    let Some(guild_id) = ctx.guild_id() else {
+        poise::say_reply(ctx, "This command only works in servers.").await?;
+        return Ok(());
+    };
+    if role.id.get() == guild_id.get() {
+        poise::say_reply(ctx, "That's the @everyone role — pick a real role.").await?;
+        return Ok(());
+    }
+    inochi_db::repos::ensure_guild(&ctx.data().pool, guild_id.get() as i64).await?;
+    inochi_db::rewards::set_level_role(
+        &ctx.data().pool,
+        guild_id.get() as i64,
+        level,
+        role.id.get() as i64,
+    )
+    .await?;
+    poise::say_reply(
+        ctx,
+        format!("Members reaching **level {level}** will receive {}.", role.mention()),
+    )
+    .await?;
+    Ok(())
+}
+
+/// Remove the reward configured at a level.
+#[poise::command(slash_command)]
+pub async fn rewards_remove(
+    ctx: Context<'_>,
+    #[description = "Level threshold"] level: i32,
+) -> Result<(), crate::Error> {
+    let Some(guild_id) = ctx.guild_id() else {
+        poise::say_reply(ctx, "This command only works in servers.").await?;
+        return Ok(());
+    };
+    let removed =
+        inochi_db::rewards::remove_level_role(&ctx.data().pool, guild_id.get() as i64, level)
+            .await?;
+    poise::say_reply(
+        ctx,
+        if removed {
+            format!("Removed the level-{level} reward.")
+        } else {
+            format!("No reward was configured at level {level}.")
+        },
+    )
+    .await?;
+    Ok(())
+}
+
+/// Show all configured level rewards.
+#[poise::command(slash_command)]
+pub async fn rewards_list(ctx: Context<'_>) -> Result<(), crate::Error> {
+    let Some(guild_id) = ctx.guild_id() else {
+        poise::say_reply(ctx, "This command only works in servers.").await?;
+        return Ok(());
+    };
+    let rows =
+        inochi_db::rewards::list_level_roles(&ctx.data().pool, guild_id.get() as i64).await?;
+    if rows.is_empty() {
+        poise::say_reply(ctx, "No level rewards configured yet — try `/rewards set`.").await?;
+        return Ok(());
+    }
+    let body: String = rows
+        .iter()
+        .map(|(level, role)| format!("Level **{level}** → <@&{role}>\n"))
+        .collect();
+    let embed = serenity::CreateEmbed::new()
+        .title("Level rewards")
+        .description(body)
+        .colour((0xEE, 0xEE, 0xEE));
+    poise::send_reply(ctx, reply().embed(embed)).await?;
+    Ok(())
+}
+
 // ---------- games ----------
 
 /// Start a chat game in this channel.

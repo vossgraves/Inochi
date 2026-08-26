@@ -16,6 +16,11 @@ pub struct GuildSettings {
     pub xp_paused: bool,
     /// Channel where level-up announcements are posted, if enabled.
     pub announce_channel_id: Option<i64>,
+    /// Channel for welcome greetings, if enabled.
+    pub welcome_channel_id: Option<i64>,
+    /// Welcome message template. Tokens: `{user}` mention, `{name}` username,
+    /// `{server}` guild name. `None` disables greetings.
+    pub welcome_template: Option<String>,
     pub multipliers: Vec<Multiplier>,
     pub blacklist: Blacklist,
 }
@@ -27,6 +32,8 @@ impl Default for GuildSettings {
             cooldown_seconds: 60,
             xp_paused: false,
             announce_channel_id: None,
+            welcome_channel_id: None,
+            welcome_template: None,
             multipliers: Vec::new(),
             blacklist: Blacklist::default(),
         }
@@ -159,6 +166,21 @@ impl GuildSettings {
         let base = self.xp_per_message as f64;
         (base * self.effective_multiplier(channel_id, role_ids)).round() as u64
     }
+
+    /// Render the welcome template, or `None` when greetings are disabled.
+    #[must_use]
+    pub fn render_welcome(&self, mention: &str, name: &str, server: &str) -> Option<String> {
+        let template = self.welcome_template.as_deref()?;
+        if template.trim().is_empty() {
+            return None;
+        }
+        Some(
+            template
+                .replace("{user}", mention)
+                .replace("{name}", name)
+                .replace("{server}", server),
+        )
+    }
 }
 
 #[cfg(test)]
@@ -201,5 +223,30 @@ mod tests {
         assert!(!settings.message_earns_xp(5, &[]));
         assert!(!settings.message_earns_xp(1, &[9]));
         assert!(settings.message_earns_xp(1, &[2]));
+    }
+
+    #[test]
+    fn welcome_renders_tokens_and_respects_disabled() {
+        let mut settings = GuildSettings::default();
+        assert!(settings.render_welcome("<@1>", "amy", "srv").is_none());
+
+        settings.welcome_template =
+            Some("Welcome {user} ({name}) to {server}!".into());
+        assert_eq!(
+            settings.render_welcome("<@1>", "amy", "srv"),
+            Some("Welcome <@1> (amy) to srv!".into())
+        );
+
+        // Empty template counts as disabled.
+        settings.welcome_template = Some("   ".into());
+        assert!(settings.render_welcome("<@1>", "amy", "srv").is_none());
+    }
+
+    #[test]
+    fn old_settings_documents_still_parse() {
+        // Documents written before welcome fields existed must deserialize.
+        let raw = serde_json::json!({ "xp_per_message": 15, "cooldown_seconds": 60 });
+        let s = GuildSettings::from_json(&raw).expect("legacy doc parses");
+        assert_eq!(s.welcome_template, None);
     }
 }
