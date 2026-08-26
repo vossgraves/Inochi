@@ -63,6 +63,22 @@ async fn on_message(
         }
     }
 
+    // Highest-number rounds: plain integer messages are submissions.
+    if let Ok(value) = message.content.trim().parse::<i64>() {
+        if games::submit_highest(
+            guild_id,
+            channel_id,
+            user_id as u64,
+            &message.author.mention().to_string(),
+            value,
+        ) == games::Submit::Improved
+        {
+            let _ = message
+                .react(&ctx.http, serenity::ReactionType::Unicode("📈".into()))
+                .await;
+        }
+    }
+
     // Fetch validated settings for this guild.
     let settings = match inochi_db::repos::get_settings(&data.pool, guild_id).await {
         Ok(s) => s,

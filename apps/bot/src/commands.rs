@@ -190,7 +190,7 @@ pub async fn help(ctx: Context<'_>) -> Result<(), crate::Error> {
         )
         .field(
             "Games",
-            "`/play scramble` — unscramble the word\n`/play math` — quick math\n`/coinflip` — flip a coin",
+            "`/play scramble` — unscramble the word\n`/play math` — quick math\n`/play quiz` — auto-generated trivia\n`/play reverse` — type it backwards\n`/play highest` — highest number wins\n`/coinflip` — flip a coin",
             false,
         )
         .field(
@@ -387,17 +387,61 @@ pub async fn play(
     // the winner's XP award fires.
     inochi_db::repos::ensure_guild(&ctx.data().pool, gid).await?;
 
-    let (prompt, answer) = crate::games::new_round(game, &mut rand::thread_rng());
+    if game == crate::games::GameKind::Highest {
+        if !crate::games::start_highest(gid, cid) {
+            poise::say_reply(ctx, "A round is already running in this channel.").await?;
+            return Ok(());
+        }
+
+        // Timer finalizes the round and pays the winner.
+        let http = ctx.serenity_context().http.clone();
+        let pool = ctx.data().pool.clone();
+        let channel = ctx.channel_id();
+        tokio::spawn(async move {
+            tokio::time::sleep(crate::games::ROUND_TIME).await;
+            if let Some((uid, mention, value)) = crate::games::finalize_highest(gid, cid) {
+                let _ = inochi_db::members::award_xp(
+                    &pool,
+                    gid,
+                    uid as i64,
+                    crate::games::WIN_XP,
+                    0,
+                )
+                .await;
+                let _ = channel
+                    .say(
+                        &http,
+                        format!(
+                            "Time! {mention} wins the Highest number round with **{value}** (+{} XP)!",
+                            crate::games::WIN_XP
+                        ),
+                    )
+                    .await;
+            }
+        });
+
+        poise::say_reply(
+            ctx,
+            format!(
+                "**{}** — type any **whole number**!\nThe highest number when time runs out (90 s) wins **{} XP**.",
+                game.label(),
+                crate::games::WIN_XP
+            ),
+        )
+        .await?;
+        return Ok(());
+    }
+
+    let Some((prompt, answer)) = crate::games::new_round(game, &mut rand::thread_rng()) else {
+        return Ok(());
+    };
     crate::games::start(gid, cid, answer);
 
-    let name = match game {
-        crate::games::GameKind::Scramble => "Scramble",
-        crate::games::GameKind::Math => "Quick math",
-    };
     poise::say_reply(
         ctx,
         format!(
-            "**{name}** — {prompt}\nFirst correct answer wins **{} XP**. You have 90 seconds.",
+            "**{}** — {prompt}\nFirst correct answer wins **{} XP**. You have 90 seconds.",
+            game.label(),
             crate::games::WIN_XP
         ),
     )
