@@ -1,22 +1,32 @@
 //! Inochi dashboard API.
 //!
-//! Phase 1 auth model: a single `ADMIN_TOKEN` bearer token. Discord OAuth
-//! session auth replaces this in phase 2, matching the upstream Next.js flow.
+//! Auth models: `ADMIN_TOKEN` bearer (full control), developer API keys
+//! (`X-API-Key`, guild-scoped, v1 read endpoints), and Discord OAuth
+//! sessions for the dashboard when `DISCORD_CLIENT_SECRET` is set.
+
+mod auth;
+mod v1;
 
 use std::sync::Arc;
 
 use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::IntoResponse;
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use sqlx::PgPool;
+
+pub(crate) use crate::auth::{ct_eq as constant_time_eq, hash_key};
 
 #[derive(Clone)]
 struct AppState {
     pool: PgPool,
     admin_token: Arc<String>,
+    /// HMAC key for session cookies (falls back to the admin token).
+    session_key: Arc<String>,
+    /// Discord OAuth, enabled only with a client secret configured.
+    oauth: Option<auth::OAuthConfig>,
 }
 
 type SharedState = State<Arc<AppState>>;
@@ -55,15 +65,33 @@ async fn async_main() {
         .expect("failed to connect to PostgreSQL");
     inochi_db::migrate(&pool).await.expect("migrations failed");
 
+    // OAuth is opt-in: needs a client secret. The public URL of the API is
+    // required to build the redirect URI.
+    let oauth = std::env::var("DISCORD_CLIENT_SECRET").ok().map(|secret| {
+        let public_base = std::env::var("API_PUBLIC_URL")
+            .unwrap_or_else(|_| format!("http://localhost:{port}"));
+        let dashboard_url = origins.first().cloned().unwrap_or_default();
+        auth::OAuthConfig {
+            client_id: std::env::var("DISCORD_CLIENT_ID").unwrap_or_default(),
+            client_secret: secret,
+            redirect_uri: format!("{public_base}/auth/callback"),
+            dashboard_url,
+        }
+    });
+
     let state = Arc::new(AppState {
         pool,
         admin_token: Arc::new(admin_token),
+        session_key: Arc::new(
+            std::env::var("SESSION_SECRET").unwrap_or_else(|_| "inochi-session".into()),
+        ),
+        oauth,
     });
 
     let cors = {
         let mut middleware = tower_http::cors::CorsLayer::new()
             .allow_methods(tower_http::cors::Any)
-            .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]);
+            .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::HeaderName::from_static("x-api-key")]);
         for origin in origins {
             if let Ok(parsed) = axum::http::HeaderValue::from_str(&origin) {
                 middleware = middleware.allow_origin(parsed);
@@ -76,6 +104,15 @@ async fn async_main() {
         .route("/api/health", get(health))
         .route("/api/guilds/:guild_id/leaderboard", get(leaderboard))
         .route("/api/guilds/:guild_id/settings", get(get_settings).put(put_settings))
+        .route("/api/guilds/:guild_id/audit", get(audit))
+        .route("/api/keys", get(list_keys_route).post(create_key_route))
+        .route("/api/keys/:id", axum::routing::delete(revoke_key_route))
+        .route("/webhooks/topgg", post(topgg_webhook))
+        .route("/auth/login", get(auth::login))
+        .route("/auth/callback", get(auth::callback))
+        .route("/auth/me", get(auth::me))
+        .route("/auth/logout", post(auth::logout))
+        .merge(v1::router())
         .layer(cors)
         .with_state(state);
 
@@ -213,6 +250,10 @@ async fn put_settings(
 
 // ---------- helpers ----------
 
+pub(crate) fn api_db_error(err: inochi_db::DbError) -> ApiError {
+    ApiError::from(err)
+}
+
 fn require_admin(state: &AppState, headers: &HeaderMap) -> Result<(), ApiError> {
     let provided = headers
         .get(header::AUTHORIZATION)
@@ -224,13 +265,6 @@ fn require_admin(state: &AppState, headers: &HeaderMap) -> Result<(), ApiError> 
     }
 }
 
-fn constant_time_eq(a: &str, b: &str) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
-}
-
 async fn ensure_guild(state: &AppState, guild_id: i64) -> Result<(), ApiError> {
     inochi_db::repos::ensure_guild(&state.pool, guild_id)
         .await
@@ -240,7 +274,7 @@ async fn ensure_guild(state: &AppState, guild_id: i64) -> Result<(), ApiError> {
         })
 }
 
-struct ApiError(StatusCode, String);
+pub(crate) struct ApiError(pub StatusCode, pub String);
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
@@ -270,4 +304,145 @@ impl From<inochi_db::DbError> for ApiError {
             }
         }
     }
+}
+
+// ---------- audit trail ----------
+
+/// GET /api/guilds/:id/audit — recent dashboard/bot configuration events.
+async fn audit(
+    State(state): SharedState,
+    headers: HeaderMap,
+    Path(guild_id): Path<i64>,
+) -> Result<impl IntoResponse, ApiError> {
+    v1::authorize(&state, &headers).await?;
+    let rows: Vec<(i64, String, Option<i64>, serde_json::Value, chrono::DateTime<chrono::Utc>)> =
+        sqlx::query_as(
+            "SELECT id, kind, actor_id, payload, created_at FROM audit_events WHERE guild_id = $1 ORDER BY id DESC LIMIT 50",
+        )
+        .bind(guild_id)
+        .fetch_all(&state.pool)
+        .await?;
+    let events: Vec<serde_json::Value> = rows
+        .into_iter()
+        .map(|(id, kind, actor, payload, at)| {
+            serde_json::json!({ "id": id, "kind": kind, "actorId": actor.map(|a| a.to_string()), "payload": payload, "at": at })
+        })
+        .collect();
+    Ok(Json(serde_json::json!({ "events": events })))
+}
+
+// ---------- developer API keys ----------
+
+#[derive(Deserialize)]
+struct CreateKeyBody {
+    label: Option<String>,
+    /// Restrict the key to one guild; omit for global read access.
+    guild_id: Option<String>,
+}
+
+async fn create_key_route(
+    State(state): SharedState,
+    headers: HeaderMap,
+    Json(body): Json<CreateKeyBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    require_admin(&state, &headers)?;
+    let raw = {
+        use rand::Rng;
+        let mut buf = [0u8; 24];
+        rand::thread_rng().fill(&mut buf);
+        format!("inochi_{}", hex::encode(buf))
+    };
+    let guild_id = body.guild_id.as_deref().and_then(|s| s.parse::<i64>().ok());
+    let id = inochi_db::keys::create_key(
+        &state.pool,
+        &hash_key(&raw),
+        body.label.as_deref().unwrap_or(""),
+        guild_id,
+        None,
+    )
+    .await
+    .map_err(api_db_error)?;
+    tracing::info!(key_id = id, "api key created");
+    Ok(Json(serde_json::json!({ "id": id, "key": raw })))
+}
+
+async fn list_keys_route(
+    State(state): SharedState,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, ApiError> {
+    require_admin(&state, &headers)?;
+    let rows = inochi_db::keys::list_keys(&state.pool).await.map_err(api_db_error)?;
+    let keys: Vec<serde_json::Value> = rows
+        .into_iter()
+        .map(|k| {
+            serde_json::json!({
+                "id": k.id,
+                "label": k.label,
+                "guildId": k.guild_id.map(|g| g.to_string()),
+                "createdAt": k.created_at,
+                "revoked": k.revoked_at.is_some(),
+            })
+        })
+        .collect();
+    Ok(Json(serde_json::json!({ "keys": keys })))
+}
+
+async fn revoke_key_route(
+    State(state): SharedState,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> Result<impl IntoResponse, ApiError> {
+    require_admin(&state, &headers)?;
+    let revoked = inochi_db::keys::revoke_key(&state.pool, id).await.map_err(api_db_error)?;
+    Ok(Json(serde_json::json!({ "revoked": revoked })))
+}
+
+// ---------- top.gg votes ----------
+
+/// POST /webhooks/topgg — vote rewards.
+///
+/// Enabled only when `TOPGG_WEBHOOK_SECRET` is set. Votes reward
+/// `TOPGG_VOTE_XP` (default 250) in every registered guild once per week.
+async fn topgg_webhook(
+    State(state): SharedState,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Result<impl IntoResponse, ApiError> {
+    let Some(secret) = std::env::var("TOPGG_WEBHOOK_SECRET").ok().filter(|s| !s.is_empty()) else {
+        return Err(ApiError(StatusCode::NOT_IMPLEMENTED, "top.gg webhook not configured".into()));
+    };
+    let provided = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
+    if !constant_time_eq(provided, &secret) {
+        return Err(ApiError(StatusCode::UNAUTHORIZED, "unauthorized".into()));
+    }
+    if body.len() > 16_384 {
+        return Err(ApiError(StatusCode::PAYLOAD_TOO_LARGE, "Payload too large".into()));
+    }
+    let parsed: serde_json::Value = serde_json::from_slice(&body)
+        .map_err(|_| ApiError(StatusCode::BAD_REQUEST, "invalid json".into()))?;
+    let user_id = parsed["user"].as_str().unwrap_or_default();
+    if !(16..=20).contains(&user_id.len()) || !user_id.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(ApiError(StatusCode::BAD_REQUEST, "Invalid user".into()));
+    }
+    let is_test = parsed["type"].as_str() == Some("test");
+    let uid: i64 = user_id
+        .parse()
+        .map_err(|_| ApiError(StatusCode::BAD_REQUEST, "Invalid user".into()))?;
+
+    let mut rewarded = 0u32;
+    if !is_test && inochi_db::keys::record_vote(&state.pool, uid).await.map_err(api_db_error)? {
+        let xp: i64 = std::env::var("TOPGG_VOTE_XP")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(250);
+        for guild in inochi_db::keys::registered_guilds(&state.pool).await.map_err(api_db_error)? {
+            if inochi_db::members::award_xp(&state.pool, guild, uid, xp, 0).await.is_ok() {
+                rewarded += 1;
+            }
+        }
+    }
+    Ok(Json(serde_json::json!({ "accepted": true, "rewarded": rewarded })))
 }

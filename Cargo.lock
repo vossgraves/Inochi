@@ -1102,10 +1102,16 @@ name = "inochi-api"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "chrono",
+ "hex",
+ "hmac",
  "inochi-core",
  "inochi-db",
+ "rand 0.8.8",
+ "reqwest",
  "serde",
  "serde_json",
+ "sha2",
  "sqlx",
  "tokio",
  "tower-http 0.5.2",

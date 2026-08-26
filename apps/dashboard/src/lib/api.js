@@ -1,5 +1,7 @@
-// Thin API client. The admin token is entered once per browser session and
-// kept in localStorage; Discord OAuth sessions replace this in phase 2.
+// Thin API client.
+//
+// Auth: Discord OAuth session cookie when configured (see /auth/me), with
+// the admin token as the manual fallback for self-hosters.
 
 const BASE = import.meta.env.VITE_API_BASE ?? ''
 
@@ -24,7 +26,7 @@ async function request(path, options = {}) {
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${getToken()}`,
+      ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
       ...(options.headers ?? {}),
     },
   })
@@ -45,4 +47,14 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ settings, actor_id: actorId }),
     }),
+  audit: (guildId) => request(`/api/guilds/${guildId}/audit`),
+  me: () => request('/auth/me'),
+  createKey: (label, guildId) =>
+    request('/api/keys', {
+      method: 'POST',
+      body: JSON.stringify({ label, guild_id: guildId || null }),
+    }),
+  listKeys: () => request('/api/keys'),
 }
+
+export const loginUrl = () => `${BASE}/auth/login`

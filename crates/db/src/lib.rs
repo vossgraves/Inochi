@@ -2,6 +2,7 @@
 
 pub mod backup;
 pub mod error;
+pub mod keys;
 pub mod members;
 pub mod repos;
 pub mod rewards;
