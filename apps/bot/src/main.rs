@@ -94,8 +94,9 @@ async fn on_message(
             Err(_) => Vec::new(),
         }
     };
+    let is_thread = is_thread_channel(ctx, message.channel_id).await;
 
-    if !settings.message_earns_xp(channel_id, &role_ids) {
+    if !settings.message_earns_xp(channel_id, &role_ids, is_thread) {
         return Ok(());
     }
     // Roll the gain: ranged gain when configured, legacy flat value otherwise.
@@ -151,6 +152,14 @@ async fn on_message(
     Ok(())
 }
 
+async fn is_thread_channel(ctx: &serenity::Context, channel_id: serenity::ChannelId) -> bool {
+    use serenity::model::channel::ChannelType;
+    ctx.cache
+        .channel(channel_id)
+        .map(|gc| matches!(gc.kind, ChannelType::PublicThread | ChannelType::PrivateThread | ChannelType::NewsThread))
+        .unwrap_or(false)
+}
+
 async fn on_member_join(
     ctx: &serenity::Context,
     data: &Data,
@@ -165,6 +174,14 @@ async fn on_member_join(
             Ok(s) => s,
             Err(_) => return Ok(()),
         };
+
+    // Join role.
+    if let Some(role_id) = settings.join_role_id {
+        let _ = member
+            .add_role(&ctx.http, serenity::RoleId::new(role_id as u64))
+            .await;
+    }
+
     let server = ctx
         .cache
         .guild(guild_id)
@@ -214,15 +231,34 @@ async fn main() {
                 commands::help(),
                 commands::rank(),
                 commands::rankcard(),
+                commands::member(),
                 commands::top(),
                 commands::weekly(),
                 commands::daily(),
+                commands::calculate(),
+                commands::vote(),
+                commands::wrapped(),
                 commands::coinflip(),
                 commands::play(),
                 commands::rewards(),
+                commands::rewardrole(),
+                commands::multiplier(),
+                commands::joinrole(),
+                commands::blacklist(),
+                commands::xpchannel(),
+                commands::threads(),
+                commands::leaderboard(),
+                commands::botstatus(),
                 commands::addxp(),
+                commands::clear(),
+                commands::reset(),
+                commands::refresh(),
+                commands::config(),
+                commands::diagnose(),
                 commands::import(),
                 commands::backup(),
+                commands::check_xp(),
+                commands::view_on_leaderboard(),
             ],
             prefix_options: poise::PrefixFrameworkOptions {
                 prefix: Some("!".into()),

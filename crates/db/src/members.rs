@@ -183,6 +183,62 @@ pub async fn add_xp_flat(
     Ok(())
 }
 
+/// Hard-set a member's XP (manager operation).
+pub async fn set_xp(pool: &PgPool, guild_id: i64, user_id: i64, xp: i64) -> DbResult<()> {
+    sqlx::query(
+        "INSERT INTO members (guild_id, user_id, xp, weekly_xp, week_start)
+         VALUES ($1, $2, $3, 0, date_trunc('week', now())::date)
+         ON CONFLICT (guild_id, user_id) DO UPDATE SET xp = $3, updated_at = now()",
+    )
+    .bind(guild_id)
+    .bind(user_id)
+    .bind(xp.max(0))
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Atomically move `amount` XP from `from` to `to` (coinflip wagers).
+///
+/// Returns `false` when the loser cannot cover the wager — nothing moves.
+pub async fn transfer_xp(
+    pool: &PgPool,
+    guild_id: i64,
+    from: i64,
+    to: i64,
+    amount: i64,
+) -> DbResult<bool> {
+    if from == to || amount <= 0 {
+        return Ok(false);
+    }
+    let mut tx = pool.begin().await?;
+    let deducted = sqlx::query(
+        "UPDATE members SET xp = xp - $3, updated_at = now()
+         WHERE guild_id = $1 AND user_id = $2 AND xp >= $3",
+    )
+    .bind(guild_id)
+    .bind(from)
+    .bind(amount)
+    .execute(&mut *tx)
+    .await?;
+    if deducted.rows_affected() == 0 {
+        return Ok(false);
+    }
+    sqlx::query(
+        "INSERT INTO members (guild_id, user_id, xp, weekly_xp, week_start)
+         VALUES ($1, $2, $3, $3, date_trunc('week', now())::date)
+         ON CONFLICT (guild_id, user_id) DO UPDATE SET
+            xp = members.xp + $3, weekly_xp = members.weekly_xp + $3, updated_at = now()",
+    )
+    .bind(guild_id)
+    .bind(to)
+    .bind(amount)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(true)
+}
+
 /// Absolute XP leaderboard for a guild.
 pub async fn leaderboard(
     pool: &PgPool,

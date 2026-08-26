@@ -30,6 +30,15 @@ pub struct GuildSettings {
     pub welcome_template: Option<String>,
     /// Optional background image URL drawn behind rank cards.
     pub rank_background_url: Option<String>,
+    /// Rank card accent colour as `#rrggbb`; defaults to vermilion.
+    pub rank_accent_color: Option<String>,
+    /// Role granted to members when they join.
+    pub join_role_id: Option<i64>,
+    /// Whether threaded channels earn XP (default true).
+    pub xp_in_threads: bool,
+    /// When true, ONLY the channels in `blacklist.channels` earn XP
+    /// (allowlist mode); otherwise the list acts as a denylist.
+    pub channel_allowlist: bool,
     pub multipliers: Vec<Multiplier>,
     pub blacklist: Blacklist,
 }
@@ -60,6 +69,10 @@ impl Default for GuildSettings {
             welcome_channel_id: None,
             welcome_template: None,
             rank_background_url: None,
+            rank_accent_color: None,
+            join_role_id: None,
+            xp_in_threads: true,
+            channel_allowlist: false,
             multipliers: Vec::new(),
             blacklist: Blacklist::default(),
         }
@@ -269,12 +282,28 @@ impl GuildSettings {
     }
 
     /// Whether a message in `channel_id` by a member with `role_ids` earns XP.
+    ///
+    /// `is_thread` gates XP when `xp_in_threads` is off; `channel_allowlist`
+    /// flips `blacklist.channels` from denylist to allowlist semantics.
     #[must_use]
-    pub fn message_earns_xp(&self, channel_id: i64, role_ids: &[i64]) -> bool {
+    pub fn message_earns_xp(
+        &self,
+        channel_id: i64,
+        role_ids: &[i64],
+        is_thread: bool,
+    ) -> bool {
         if self.xp_paused {
             return false;
         }
-        if self.blacklist.channels.contains(&channel_id) {
+        if is_thread && !self.xp_in_threads {
+            return false;
+        }
+        let listed = self.blacklist.channels.contains(&channel_id);
+        if self.channel_allowlist {
+            if !listed {
+                return false;
+            }
+        } else if listed {
             return false;
         }
         !role_ids.iter().any(|r| self.blacklist.roles.contains(r))
@@ -339,9 +368,17 @@ mod tests {
             blacklist: Blacklist { channels: vec![5], roles: vec![9] },
             ..Default::default()
         };
-        assert!(!settings.message_earns_xp(5, &[]));
-        assert!(!settings.message_earns_xp(1, &[9]));
-        assert!(settings.message_earns_xp(1, &[2]));
+        assert!(!settings.message_earns_xp(5, &[], false));
+        assert!(!settings.message_earns_xp(1, &[9], false));
+        assert!(settings.message_earns_xp(1, &[2], false));
+        // Thread gating: only when xp_in_threads is off.
+        let no_threads = GuildSettings { xp_in_threads: false, ..settings.clone() };
+        assert!(!no_threads.message_earns_xp(1, &[], true));
+        assert!(no_threads.message_earns_xp(1, &[], false));
+        // Allowlist mode inverts the channel list.
+        let allow = GuildSettings { channel_allowlist: true, ..settings };
+        assert!(allow.message_earns_xp(5, &[], false));
+        assert!(!allow.message_earns_xp(1, &[], false));
     }
 
     #[test]
