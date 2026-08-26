@@ -6,13 +6,51 @@ use sqlx::PgPool;
 
 use crate::Context;
 
-fn level_line(curve: &inochi_core::Curve, xp: i64) -> String {
-    let level = curve.level_for_xp(xp.max(0) as u64);
-    let (current, needed) = curve.progress(xp.max(0) as u64);
-    format!("Level **{level}** — {current}/{needed} XP ({xp} total)")
+/// Fetch an image over HTTPS; `None` on any failure.
+async fn fetch_image(url: &str) -> Option<image::DynamicImage> {
+    let bytes = reqwest::get(url).await.ok()?.bytes().await.ok()?;
+    image::load_from_memory(&bytes).ok()
 }
 
-/// Show a member's XP, level and rank.
+/// Build the rank card PNG for a member (shared by /rank and /rankcard).
+async fn build_rank_card(
+    ctx: Context<'_>,
+    gid: i64,
+    target: &serenity::User,
+) -> Result<Vec<u8>, crate::Error> {
+    let member = inochi_db::members::get_member(&ctx.data().pool, gid, target.id.get() as i64).await?;
+    let rank = inochi_db::members::rank_of(&ctx.data().pool, gid, target.id.get() as i64).await?;
+    let settings = inochi_db::repos::get_settings(&ctx.data().pool, gid)
+        .await
+        .unwrap_or_default();
+
+    let level = settings.curve.level_for_xp(member.xp.max(0) as u64);
+    let current_level_xp = settings.curve.xp_for_level(level);
+    let next_level_xp = settings
+        .curve
+        .xp_to_next(level)
+        .saturating_add(current_level_xp);
+
+    let background = match settings.rank_background_url.as_deref().filter(|u| !u.is_empty()) {
+        Some(url) => fetch_image(url).await,
+        None => None,
+    };
+    let avatar = fetch_image(&target.face()).await;
+
+    let input = crate::rankcard::CardInput {
+        username: &target.name,
+        avatar: avatar.as_ref(),
+        rank,
+        level,
+        xp: member.xp.max(0) as u64,
+        current_level_xp,
+        next_level_xp,
+        background: background.as_ref(),
+    };
+    Ok(crate::rankcard::render(&input))
+}
+
+/// Show a member's rank card: level, rank, XP and progress.
 #[poise::command(slash_command)]
 pub async fn rank(
     ctx: Context<'_>,
@@ -23,24 +61,32 @@ pub async fn rank(
         poise::say_reply(ctx, "This command only works in servers.").await?;
         return Ok(());
     };
-    let gid = guild_id.get() as i64;
-    let uid = target.id.get() as i64;
 
-    let member = inochi_db::members::get_member(&ctx.data().pool, gid, uid).await?;
-    let rank = inochi_db::members::rank_of(&ctx.data().pool, gid, uid).await?;
-    let curve = inochi_db::repos::get_settings(&ctx.data().pool, gid)
-        .await
-        .map(|s| s.curve)
-        .unwrap_or_default();
-
+    let png = build_rank_card(ctx, guild_id.get() as i64, &target).await?;
+    let file = serenity::CreateAttachment::bytes(png, "rank.png");
     let embed = serenity::CreateEmbed::new()
-        .title(target.name.clone())
-        .description(level_line(&curve, member.xp))
-        .field("Rank", rank.map(|r| format!("#{r}")).unwrap_or_else(|| "—".into()), true)
-        .field("Weekly XP", member.weekly_xp.to_string(), true)
-        .colour((0xEE, 0xEE, 0xEE));
+        .title(format!("{} — rank card", target.name))
+        .image("attachment://rank.png")
+        .colour((0xd3, 0x3c, 0x1c));
+    poise::send_reply(ctx, reply().embed(embed).attachment(file)).await?;
+    Ok(())
+}
 
-    poise::send_reply(ctx, crate::commands::reply().embed(embed)).await?;
+/// Render the rank card image for a member.
+#[poise::command(slash_command)]
+pub async fn rankcard(
+    ctx: Context<'_>,
+    #[description = "Member to inspect (defaults to you)"] user: Option<serenity::User>,
+) -> Result<(), crate::Error> {
+    let target = user.unwrap_or_else(|| ctx.author().clone());
+    let Some(guild_id) = ctx.guild_id() else {
+        poise::say_reply(ctx, "This command only works in servers.").await?;
+        return Ok(());
+    };
+
+    let png = build_rank_card(ctx, guild_id.get() as i64, &target).await?;
+    let file = serenity::CreateAttachment::bytes(png, "rank.png");
+    poise::send_reply(ctx, reply().attachment(file)).await?;
     Ok(())
 }
 
@@ -450,44 +496,6 @@ pub async fn play(
         ),
     )
     .await?;
-    Ok(())
-}
-
-/// Render a rank card image for a member.
-#[poise::command(slash_command)]
-pub async fn rankcard(
-    ctx: Context<'_>,
-    #[description = "Member to inspect (defaults to you)"] user: Option<serenity::User>,
-) -> Result<(), crate::Error> {
-    let target = user.unwrap_or_else(|| ctx.author().clone());
-    let Some(guild_id) = ctx.guild_id() else {
-        poise::say_reply(ctx, "This command only works in servers.").await?;
-        return Ok(());
-    };
-    let gid = guild_id.get() as i64;
-
-    let member = inochi_db::members::get_member(&ctx.data().pool, gid, target.id.get() as i64).await?;
-    let rank = inochi_db::members::rank_of(&ctx.data().pool, gid, target.id.get() as i64).await?;
-    let settings = inochi_db::repos::get_settings(&ctx.data().pool, gid).await.unwrap_or_default();
-    let curve = settings.curve.clone();
-    let level = curve.level_for_xp(member.xp.max(0) as u64);
-    let (current, needed) = curve.progress(member.xp.max(0) as u64);
-
-    // Optional custom background, fetched per render (URL-based; no blob storage).
-    let background = match settings.rank_background_url.as_deref() {
-        Some(url) if !url.is_empty() => match reqwest::get(url).await {
-            Ok(resp) => match resp.bytes().await {
-                Ok(bytes) => image::load_from_memory(&bytes).ok(),
-                Err(_) => None,
-            },
-            Err(_) => None,
-        },
-        _ => None,
-    };
-
-    let png = crate::rankcard::render(&target.name, level, rank, current, needed, background.as_ref());
-    let file = serenity::CreateAttachment::bytes(png, "rank.png");
-    poise::send_reply(ctx, reply().attachment(file)).await?;
     Ok(())
 }
 
