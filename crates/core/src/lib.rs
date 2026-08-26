@@ -7,7 +7,7 @@
 pub mod curve;
 pub mod settings;
 
-pub use curve::{level_for_xp, level_progress, xp_for_level};
+pub use curve::Curve;
 pub use settings::{
-    Blacklist, GuildSettings, Multiplier, MultiplierScope, SettingsError,
+    Blacklist, Gain, GuildSettings, Multiplier, MultiplierScope, Preset, SettingsError,
 };

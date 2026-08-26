@@ -144,10 +144,15 @@ async fn leaderboard(
         .await?
     };
 
+    let curve = match inochi_db::repos::get_settings(&state.pool, guild_id).await {
+        Ok(s) => s.curve,
+        Err(_) => inochi_core::Curve::default(),
+    };
+
     let entries: Vec<serde_json::Value> = rows
         .iter()
         .map(|row| {
-            let level = inochi_core::level_for_xp(row.xp.max(0) as u64);
+            let level = curve.level_for_xp(row.xp.max(0) as u64);
             serde_json::json!({
                 "userId": row.user_id.to_string(),
                 "position": row.position,

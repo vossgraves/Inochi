@@ -5,6 +5,7 @@
 
 mod commands;
 mod games;
+mod importers;
 mod rankcard;
 
 use poise::serenity_prelude::{self as serenity, Mentionable};
@@ -97,7 +98,13 @@ async fn on_message(
     if !settings.message_earns_xp(channel_id, &role_ids) {
         return Ok(());
     }
-    let amount = settings.award(channel_id, &role_ids) as i64;
+    // Roll the gain: ranged gain when configured, legacy flat value otherwise.
+    let base = if settings.gain.max > 0 {
+        rand::Rng::gen_range(&mut rand::thread_rng(), settings.gain.min..=settings.gain.max.max(settings.gain.min))
+    } else {
+        settings.xp_per_message
+    };
+    let amount = settings.award_amount(base, channel_id, &role_ids) as i64;
 
     if let Some(row) = inochi_db::members::award_xp(
         &data.pool,
@@ -109,8 +116,8 @@ async fn on_message(
     .await?
     {
         // Level-up announcement when the award crossed the boundary.
-        let before_level = inochi_core::level_for_xp((row.xp - amount) as u64);
-        let now_level = inochi_core::level_for_xp(row.xp as u64);
+        let before_level = settings.curve.level_for_xp((row.xp - amount) as u64);
+        let now_level = settings.curve.level_for_xp(row.xp as u64);
         if now_level > before_level {
             // Grant the highest configured level reward.
             if let Ok(Some(role_id)) =
@@ -214,7 +221,7 @@ async fn main() {
                 commands::play(),
                 commands::rewards(),
                 commands::addxp(),
-                commands::importcsv(),
+                commands::import(),
                 commands::backup(),
             ],
             prefix_options: poise::PrefixFrameworkOptions {

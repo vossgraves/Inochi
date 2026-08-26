@@ -6,9 +6,9 @@ use sqlx::PgPool;
 
 use crate::Context;
 
-fn level_line(xp: i64) -> String {
-    let level = inochi_core::level_for_xp(xp as u64);
-    let (current, needed) = inochi_core::level_progress(xp as u64);
+fn level_line(curve: &inochi_core::Curve, xp: i64) -> String {
+    let level = curve.level_for_xp(xp.max(0) as u64);
+    let (current, needed) = curve.progress(xp.max(0) as u64);
     format!("Level **{level}** — {current}/{needed} XP ({xp} total)")
 }
 
@@ -28,10 +28,14 @@ pub async fn rank(
 
     let member = inochi_db::members::get_member(&ctx.data().pool, gid, uid).await?;
     let rank = inochi_db::members::rank_of(&ctx.data().pool, gid, uid).await?;
+    let curve = inochi_db::repos::get_settings(&ctx.data().pool, gid)
+        .await
+        .map(|s| s.curve)
+        .unwrap_or_default();
 
     let embed = serenity::CreateEmbed::new()
         .title(target.name.clone())
-        .description(level_line(member.xp))
+        .description(level_line(&curve, member.xp))
         .field("Rank", rank.map(|r| format!("#{r}")).unwrap_or_else(|| "—".into()), true)
         .field("Weekly XP", member.weekly_xp.to_string(), true)
         .colour((0xEE, 0xEE, 0xEE));
@@ -464,10 +468,24 @@ pub async fn rankcard(
 
     let member = inochi_db::members::get_member(&ctx.data().pool, gid, target.id.get() as i64).await?;
     let rank = inochi_db::members::rank_of(&ctx.data().pool, gid, target.id.get() as i64).await?;
-    let level = inochi_core::level_for_xp(member.xp.max(0) as u64);
-    let (current, needed) = inochi_core::level_progress(member.xp.max(0) as u64);
+    let settings = inochi_db::repos::get_settings(&ctx.data().pool, gid).await.unwrap_or_default();
+    let curve = settings.curve.clone();
+    let level = curve.level_for_xp(member.xp.max(0) as u64);
+    let (current, needed) = curve.progress(member.xp.max(0) as u64);
 
-    let png = crate::rankcard::render(&target.name, level, rank, current, needed);
+    // Optional custom background, fetched per render (URL-based; no blob storage).
+    let background = match settings.rank_background_url.as_deref() {
+        Some(url) if !url.is_empty() => match reqwest::get(url).await {
+            Ok(resp) => match resp.bytes().await {
+                Ok(bytes) => image::load_from_memory(&bytes).ok(),
+                Err(_) => None,
+            },
+            Err(_) => None,
+        },
+        _ => None,
+    };
+
+    let png = crate::rankcard::render(&target.name, level, rank, current, needed, background.as_ref());
     let file = serenity::CreateAttachment::bytes(png, "rank.png");
     poise::send_reply(ctx, reply().attachment(file)).await?;
     Ok(())
@@ -587,9 +605,19 @@ pub(crate) fn parse_leaderboard_csv(bytes: &[u8]) -> Vec<inochi_db::backup::Back
     out
 }
 
+/// Import member XP from other bots.
+#[poise::command(
+    slash_command,
+    default_member_permissions = "MANAGE_GUILD",
+    subcommands("import_csv", "import_scan")
+)]
+pub async fn import(_: Context<'_>) -> Result<(), crate::Error> {
+    Ok(())
+}
+
 /// Import member XP from a CSV file (`user_id,xp` rows).
-#[poise::command(slash_command, default_member_permissions = "MANAGE_GUILD")]
-pub async fn importcsv(
+#[poise::command(slash_command)]
+pub async fn import_csv(
     ctx: Context<'_>,
     #[description = "CSV file with user_id,xp rows"] csv: serenity::Attachment,
 ) -> Result<(), crate::Error> {
@@ -629,6 +657,150 @@ pub async fn importcsv(
         format!("Imported **{}** members from CSV.", summary.members_merged),
     )
     .await?;
+    Ok(())
+}
+
+/// Flatten one message into the text snapshot the parsers read.
+fn snapshot_text(m: &serenity::Message) -> String {
+    let mut parts = vec![m.content.clone()];
+    for e in &m.embeds {
+        if let Some(author) = &e.author {
+            parts.push(author.name.clone());
+        }
+        if let Some(t) = &e.title {
+            parts.push(t.clone());
+        }
+        if let Some(d) = &e.description {
+            parts.push(d.clone());
+        }
+        for f in &e.fields {
+            parts.push(format!("{}: {}", f.name, f.value));
+        }
+        if let Some(footer) = &e.footer {
+            parts.push(footer.text.clone());
+        }
+    }
+    parts.into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join("\n")
+}
+
+/// Scan a channel's leaderboard messages and import XP from another bot.
+#[poise::command(slash_command)]
+pub async fn import_scan(
+    ctx: Context<'_>,
+    #[description = "Which bot posted the leaderboard"] provider: crate::importers::Provider,
+    #[description = "Channel to scan (defaults to this one)"] channel: Option<serenity::Channel>,
+    #[description = "Messages to scan"] #[min = 1] #[max = 500] limit: Option<u32>,
+) -> Result<(), crate::Error> {
+    let Some(guild_id) = ctx.guild_id() else {
+        poise::say_reply(ctx, "This command only works in servers.").await?;
+        return Ok(());
+    };
+    let gid = guild_id.get() as i64;
+    let target = channel.map(|c| c.id()).unwrap_or(ctx.channel_id());
+
+    let curve = inochi_db::repos::get_settings(&ctx.data().pool, gid)
+        .await
+        .map(|s| s.curve)
+        .unwrap_or_default();
+
+    poise::say_reply(ctx, format!("Scanning up to {} messages…", limit.unwrap_or(100))).await?;
+
+    use serenity::futures::StreamExt;
+    let mut records: Vec<crate::importers::Record> = Vec::new();
+    let mut scanned = 0u32;
+    let mut stream = Box::pin(target.messages_iter(ctx.http()).take(limit.unwrap_or(100) as usize));
+    while let Some(item) = stream.next().await {
+        match item {
+            Ok(m) => {
+                scanned += 1;
+                let text = snapshot_text(&m);
+                crate::importers::parse_message(provider, &text, &curve, &mut records);
+            }
+            Err(err) => {
+                tracing::warn!(%err, "history fetch error during import scan");
+                break;
+            }
+        }
+    }
+
+    if records.is_empty() {
+        poise::send_reply(
+            ctx,
+            reply_ephemeral().content(format!(
+                "Scanned {scanned} messages — no {} leaderboard records found.",
+                match provider {
+                    crate::importers::Provider::Mee6 => "MEE6",
+                    crate::importers::Provider::Amari => "Amari",
+                    crate::importers::Provider::Lurkr => "Lurkr",
+                    crate::importers::Provider::Arcane => "Arcane",
+                    crate::importers::Provider::ProBot => "ProBot",
+                    crate::importers::Provider::CarlBot => "Carl-bot",
+                }
+            )),
+        )
+        .await?;
+        return Ok(());
+    }
+
+    let members: Vec<inochi_db::backup::BackupMember> = records
+        .iter()
+        .map(|r| inochi_db::backup::BackupMember { user_id: r.user_id, xp: r.xp })
+        .collect();
+    let count = members.len();
+
+    inochi_db::repos::ensure_guild(&ctx.data().pool, gid).await?;
+    let summary = inochi_db::backup::import_guild(
+        &ctx.data().pool,
+        gid,
+        &inochi_db::backup::BackupDoc {
+            version: 1,
+            guild_id: gid,
+            settings: None,
+            members,
+        },
+    )
+    .await?;
+
+    poise::send_reply(
+        ctx,
+        reply_ephemeral().content(format!(
+            "Scanned **{scanned}** messages, found **{count}** members, merged **{}** entries. XP merged as max(current, imported).",
+            summary.members_merged
+        )),
+    )
+    .await?;
+    Ok(())
+}
+
+// ---------- emoji art ----------
+
+/// Render text as big emoji letters.
+#[poise::command(slash_command)]
+pub async fn bigtext(
+    ctx: Context<'_>,
+    #[description = "Text to render (max 24 chars)"] #[min_length = 1] text: String,
+) -> Result<(), crate::Error> {
+    let rendered: String = text
+        .chars()
+        .take(24)
+        .map(|c| match c {
+            'a'..='z' | 'A'..='Z' => {
+                let offset = (c.to_ascii_lowercase() as u32) - ('a' as u32);
+                char::from_u32(0x1F1E6 + offset)
+                    .map(|r| format!("{r} "))
+                    .unwrap_or_default()
+            }
+            '0'..='9' => format!("{c}\u{FE0F}\u{20E3} "),
+            ' ' => "\u{3000}".into(),
+            other => other.to_string(),
+        })
+        .collect();
+
+    if rendered.trim().is_empty() {
+        poise::say_reply(ctx, "Nothing renderable in that text.").await?;
+        return Ok(());
+    }
+    poise::say_reply(ctx, rendered).await?;
     Ok(())
 }
 

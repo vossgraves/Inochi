@@ -78,14 +78,43 @@ fn draw_text(
     }
 }
 
+/// Blend a dark veil over the image for text legibility.
+fn veil(img: &mut RgbaImage, alpha: f32) {
+    for px in img.pixels_mut() {
+        for ch in 0..3 {
+            px[ch] = ((px[ch] as f32) * (1.0 - alpha) + 12.0 * alpha).round() as u8;
+        }
+    }
+}
+
 /// Render the rank card and return PNG bytes.
+///
+/// `background`, when provided, is scaled to fill the card and veiled so
+/// text stays readable.
 #[must_use]
-pub fn render(name: &str, level: u32, rank: Option<i64>, current: u64, needed: u64) -> Vec<u8> {
+pub fn render(
+    name: &str,
+    level: u32,
+    rank: Option<i64>,
+    current: u64,
+    needed: u64,
+    background: Option<&image::DynamicImage>,
+) -> Vec<u8> {
     let regular = font(FONT_REGULAR);
     let bold = font(FONT_BOLD);
 
-    let mut img = RgbaImage::new(W, H);
-    fill_rect(&mut img, 0, 0, W as i64, H as i64, BG);
+    let mut img = match background {
+        Some(bg) => {
+            let mut base = bg.resize_exact(W, H, image::imageops::FilterType::Triangle).to_rgba8();
+            veil(&mut base, 0.55);
+            base
+        }
+        None => {
+            let mut base = RgbaImage::new(W, H);
+            fill_rect(&mut base, 0, 0, W as i64, H as i64, BG);
+            base
+        }
+    };
     fill_rect(&mut img, 0, 0, 6, H as i64, ACCENT);
 
     // Name + rank badge.
@@ -127,14 +156,21 @@ pub fn render(name: &str, level: u32, rank: Option<i64>, current: u64, needed: u
 mod tests {
     #[test]
     fn produces_valid_png() {
-        let bytes = super::render("tester", 42, Some(7), 350, 1000);
+        let bytes = super::render("tester", 42, Some(7), 350, 1000, None);
         assert!(bytes.starts_with(&[0x89, b'P', b'N', b'G']));
         assert!(bytes.len() > 1024);
     }
 
     #[test]
     fn zero_needed_does_not_panic() {
-        let bytes = super::render("x", 0, None, 0, 0);
+        let bytes = super::render("x", 0, None, 0, 0, None);
+        assert!(bytes.starts_with(&[0x89, b'P', b'N', b'G']));
+    }
+
+    #[test]
+    fn background_layer_renders() {
+        let bg = image::DynamicImage::new_rgba8(400, 200);
+        let bytes = super::render("bg", 3, Some(1), 10, 20, Some(&bg));
         assert!(bytes.starts_with(&[0x89, b'P', b'N', b'G']));
     }
 }

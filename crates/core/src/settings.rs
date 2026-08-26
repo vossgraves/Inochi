@@ -5,15 +5,22 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::curve::Curve;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct GuildSettings {
-    /// Base XP granted per qualifying message.
+    /// Base XP granted per qualifying message (legacy single-value gain).
     pub xp_per_message: u64,
+    /// Randomized XP gain range; when `max > 0` it supersedes
+    /// `xp_per_message`.
+    pub gain: Gain,
     /// Minimum seconds between two rewarded messages per member.
     pub cooldown_seconds: u64,
     /// Whether XP accumulation is paused (e.g. before `/setup` completes).
     pub xp_paused: bool,
+    /// The level curve (MEE6 by default; presets swap it wholesale).
+    pub curve: Curve,
     /// Channel where level-up announcements are posted, if enabled.
     pub announce_channel_id: Option<i64>,
     /// Channel for welcome greetings, if enabled.
@@ -21,21 +28,134 @@ pub struct GuildSettings {
     /// Welcome message template. Tokens: `{user}` mention, `{name}` username,
     /// `{server}` guild name. `None` disables greetings.
     pub welcome_template: Option<String>,
+    /// Optional background image URL drawn behind rank cards.
+    pub rank_background_url: Option<String>,
     pub multipliers: Vec<Multiplier>,
     pub blacklist: Blacklist,
+}
+
+/// Randomized XP gain per qualifying message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Gain {
+    pub min: u64,
+    pub max: u64,
+}
+
+impl Default for Gain {
+    fn default() -> Self {
+        Self { min: 15, max: 25 }
+    }
 }
 
 impl Default for GuildSettings {
     fn default() -> Self {
         Self {
             xp_per_message: 15,
+            gain: Gain::default(),
             cooldown_seconds: 60,
             xp_paused: false,
+            curve: Curve::default(),
             announce_channel_id: None,
             welcome_channel_id: None,
             welcome_template: None,
+            rank_background_url: None,
             multipliers: Vec::new(),
             blacklist: Blacklist::default(),
+        }
+    }
+}
+
+/// The shipped leveling presets (port of `packages/core/src/presets.ts`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Preset {
+    Inochi,
+    Lurkr,
+    Mee6,
+    Amari,
+    Custom,
+}
+
+impl Preset {
+    /// Apply a preset's gain + curve to `settings` (multipliers untouched).
+    #[must_use]
+    pub fn apply(self, settings: &GuildSettings) -> GuildSettings {
+        let mut s = settings.clone();
+        let max_level = s.curve.max_level;
+        match self {
+            Self::Inochi => {
+                s.gain = Gain { min: 50, max: 100 };
+                s.cooldown_seconds = 60;
+                s.curve = Curve {
+                    constant: 0.0,
+                    cubic: 1.0,
+                    quadratic: 50.0,
+                    linear: 100.0,
+                    rounding: 100.0,
+                    max_level,
+                };
+            }
+            Self::Lurkr => {
+                s.gain = Gain { min: 15, max: 40 };
+                s.cooldown_seconds = 60;
+                s.curve = Curve::lurkr();
+                s.curve.max_level = max_level;
+            }
+            Self::Mee6 => {
+                s.gain = Gain { min: 15, max: 25 };
+                s.cooldown_seconds = 60;
+                s.curve = Curve::mee6();
+                s.curve.max_level = max_level;
+            }
+            Self::Amari => {
+                s.gain = Gain { min: 1, max: 1 };
+                s.cooldown_seconds = 8;
+                s.curve = Curve::amari();
+                s.curve.max_level = max_level;
+            }
+            Self::Custom => {}
+        }
+        s
+    }
+
+    /// Detect which preset (if any) matches these settings.
+    #[must_use]
+    pub fn detect(settings: &GuildSettings) -> Self {
+        if settings.gain == (Gain { min: 50, max: 100 })
+            && settings.cooldown_seconds == 60
+            && settings.curve.constant == 0.0
+            && settings.curve.cubic == 1.0
+            && settings.curve.quadratic == 50.0
+            && settings.curve.linear == 100.0
+        {
+            Self::Inochi
+        } else if settings.gain == (Gain { min: 15, max: 40 })
+            && settings.cooldown_seconds == 60
+            && settings.curve.constant == 150.0
+            && settings.curve.cubic == 0.0
+            && settings.curve.quadratic == 50.0
+            && settings.curve.linear == -100.0
+        {
+            Self::Lurkr
+        } else if settings.gain == (Gain { min: 15, max: 25 })
+            && settings.cooldown_seconds == 60
+            && settings.curve.constant == 0.0
+            && (settings.curve.cubic - 5.0 / 3.0).abs() < 1e-9
+            && settings.curve.quadratic == 22.5
+            && (settings.curve.linear - 455.0 / 6.0).abs() < 1e-9
+        {
+            Self::Mee6
+        } else if settings.gain == (Gain { min: 1, max: 1 })
+            && settings.cooldown_seconds == 8
+            && settings.curve.constant == 55.0
+            && settings.curve.cubic == 0.0
+            && settings.curve.quadratic == 20.0
+            && settings.curve.linear == -40.0
+        {
+            Self::Amari
+        } else {
+            Self::Custom
         }
     }
 }
@@ -160,11 +280,10 @@ impl GuildSettings {
         !role_ids.iter().any(|r| self.blacklist.roles.contains(r))
     }
 
-    /// XP awarded for one qualifying message.
+    /// XP awarded for one qualifying message with the rolled `base` gain.
     #[must_use]
-    pub fn award(&self, channel_id: i64, role_ids: &[i64]) -> u64 {
-        let base = self.xp_per_message as f64;
-        (base * self.effective_multiplier(channel_id, role_ids)).round() as u64
+    pub fn award_amount(&self, base: u64, channel_id: i64, role_ids: &[i64]) -> u64 {
+        (base as f64 * self.effective_multiplier(channel_id, role_ids)).round() as u64
     }
 
     /// Render the welcome template, or `None` when greetings are disabled.
@@ -209,9 +328,9 @@ mod tests {
             ..Default::default()
         };
         // 15 * 2 * 1.5 * 1.1 = 49.5 -> rounds to 50
-        assert_eq!(settings.award(10, &[20]), 50);
+        assert_eq!(settings.award_amount(15, 10, &[20]), 50);
         // Only the global applies elsewhere: 15 * 1.1 = 16.5 -> 17
-        assert_eq!(settings.award(99, &[]), 17);
+        assert_eq!(settings.award_amount(15, 99, &[]), 17);
     }
 
     #[test]
