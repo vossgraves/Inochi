@@ -258,6 +258,43 @@ pub struct CardInput<'a> {
     pub current_level_xp: u64,
     pub next_level_xp: u64,
     pub background: Option<&'a image::DynamicImage>,
+    /// Accent colour (defaults to vermilion).
+    pub accent: [u8; 3],
+    /// Ink veil strength over the background (0..=0.95).
+    pub overlay: f32,
+    /// Avatar corner radius (6 rounded, 94 circle, 0 square).
+    pub avatar_radius: f64,
+    /// Draw the technical measuring grid.
+    pub technical_surface: bool,
+    /// Draw the progress halo.
+    pub glow: bool,
+}
+
+impl<'a> CardInput<'a> {
+    /// Defaults matching the original card.
+    pub fn new(
+        username: &'a str,
+        level: u32,
+        xp: u64,
+        current_level_xp: u64,
+        next_level_xp: u64,
+    ) -> Self {
+        Self {
+            username,
+            avatar: None,
+            rank: None,
+            level,
+            xp,
+            current_level_xp,
+            next_level_xp,
+            background: None,
+            accent: VERMILION,
+            overlay: 0.86,
+            avatar_radius: 6.0,
+            technical_surface: true,
+            glow: true,
+        }
+    }
 }
 
 /// Render the rank card and return PNG bytes.
@@ -269,25 +306,27 @@ pub fn render(input: &CardInput) -> Vec<u8> {
     let mut img = RgbaImage::new(W, H);
     fill_rect(&mut img, 0, 0, W as i64, H as i64, INK, 1.0);
 
-    // Background image, cover-cropped, veiled with ink (default 0.86).
+    // Background image, cover-cropped, veiled with ink.
     if let Some(bg) = input.background {
         let layer = cover(bg, W, H);
         for (x, y, p) in layer.enumerate_pixels() {
             blend(&mut img, x as i64, y as i64, [p[0], p[1], p[2]], p[3] as f32 / 255.0);
         }
-        fill_rect(&mut img, 0, 0, W as i64, H as i64, INK, 0.86);
+        fill_rect(&mut img, 0, 0, W as i64, H as i64, INK, input.overlay.clamp(0.0, 0.95));
     }
 
     // Technical grid: rules, not decoration.
-    let mut x = 270;
-    while x < W as i64 {
-        fill_rect(&mut img, x, 0, 1, H as i64, [255, 255, 255], 0.05);
-        x += 34;
-    }
-    let mut y = 20;
-    while y < H as i64 {
-        fill_rect(&mut img, 250, y, (W as i64 - 250), 1, [255, 255, 255], 0.05);
-        y += 34;
+    if input.technical_surface {
+        let mut x = 270;
+        while x < W as i64 {
+            fill_rect(&mut img, x, 0, 1, H as i64, [255, 255, 255], 0.05);
+            x += 34;
+        }
+        let mut y = 20;
+        while y < H as i64 {
+            fill_rect(&mut img, 250, y, (W as i64 - 250), 1, [255, 255, 255], 0.05);
+            y += 34;
+        }
     }
 
     // Avatar panel.
@@ -305,7 +344,7 @@ pub fn render(input: &CardInput) -> Vec<u8> {
     match input.avatar {
         Some(avatar) => {
             let cropped = cover(avatar, 188, 188);
-            blit_rounded(&mut img, &cropped, 38, 44, 6.0);
+            blit_rounded(&mut img, &cropped, 38, 44, input.avatar_radius);
         }
         None => {
             round_rect(&mut img, 38.0, 44.0, 188.0, 188.0, 6.0, Some(([0x26, 0x22, 0x20], 1.0)), None);
@@ -314,7 +353,7 @@ pub fn render(input: &CardInput) -> Vec<u8> {
             draw_text(&mut img, &sans, &initial, 132 - (w / 2.0).round() as i64, 162, 68.0, PAPER, 1.0);
         }
     }
-    round_rect(&mut img, 78.0, 247.0, 108.0, 5.0, 3.0, Some((VERMILION, 1.0)), None);
+    round_rect(&mut img, 78.0, 247.0, 108.0, 5.0, 3.0, Some((input.accent, 1.0)), None);
 
     // Header + name.
     draw_text(&mut img, &mono, "INOCHI  /  MEMBER", 278, 48, 15.0, MUTED, 1.0);
@@ -345,22 +384,24 @@ pub fn render(input: &CardInput) -> Vec<u8> {
         0.0
     };
     if progress > 0.0 {
-        // Tight glow halo.
-        round_rect(
-            &mut img,
-            bar_x - 2.0,
-            bar_y - 2.0,
-            bar_w * progress + 4.0,
-            bar_h + 4.0,
-            4.0,
-            Some((VERMILION, 0.17)),
-            None,
-        );
+        // Tight glow halo (solid style skips it).
+        if input.glow {
+            round_rect(
+                &mut img,
+                bar_x - 2.0,
+                bar_y - 2.0,
+                bar_w * progress + 4.0,
+                bar_h + 4.0,
+                4.0,
+                Some((input.accent, 0.17)),
+                None,
+            );
+        }
         fill_round_rect_clipped(
             &mut img,
             (bar_x, bar_y, bar_w * progress, bar_h, 0.0),
             (bar_x, bar_y, bar_w, bar_h, 3.0),
-            VERMILION,
+            input.accent,
             1.0,
         );
     }
@@ -411,6 +452,11 @@ mod tests {
             current_level_xp: 1000,
             next_level_xp: 2000,
             background: None,
+            accent: VERMILION,
+            overlay: 0.86,
+            avatar_radius: 6.0,
+            technical_surface: true,
+            glow: true,
         }
     }
 
@@ -428,6 +474,21 @@ mod tests {
         let input = CardInput {
             avatar: Some(&avatar),
             background: Some(&bg),
+            ..sample()
+        };
+        let bytes = render(&input);
+        assert!(bytes.starts_with(&[0x89, b'P', b'N', b'G']));
+    }
+
+    #[test]
+    fn style_variants_render() {
+        // Clean surface, solid bar, circle avatar.
+        let input = CardInput {
+            technical_surface: false,
+            glow: false,
+            avatar_radius: 94.0,
+            accent: [0x7c, 0xb4, 0xff],
+            overlay: 0.5,
             ..sample()
         };
         let bytes = render(&input);

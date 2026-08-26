@@ -30,7 +30,7 @@
 </script>
 
 <header>
-  <h1>inochi</h1>
+  <h1>Inochi</h1>
   <nav>
     {#each views as [id, label]}
       <button class:active={view === id} onclick={() => (view = id)}>

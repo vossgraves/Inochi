@@ -12,44 +12,6 @@ async fn fetch_image(url: &str) -> Option<image::DynamicImage> {
     image::load_from_memory(&bytes).ok()
 }
 
-/// Build the rank card PNG for a member (shared by /rank and /rankcard).
-async fn build_rank_card(
-    ctx: Context<'_>,
-    gid: i64,
-    target: &serenity::User,
-) -> Result<Vec<u8>, crate::Error> {
-    let member = inochi_db::members::get_member(&ctx.data().pool, gid, target.id.get() as i64).await?;
-    let rank = inochi_db::members::rank_of(&ctx.data().pool, gid, target.id.get() as i64).await?;
-    let settings = inochi_db::repos::get_settings(&ctx.data().pool, gid)
-        .await
-        .unwrap_or_default();
-
-    let level = settings.curve.level_for_xp(member.xp.max(0) as u64);
-    let current_level_xp = settings.curve.xp_for_level(level);
-    let next_level_xp = settings
-        .curve
-        .xp_to_next(level)
-        .saturating_add(current_level_xp);
-
-    let background = match settings.rank_background_url.as_deref().filter(|u| !u.is_empty()) {
-        Some(url) => fetch_image(url).await,
-        None => None,
-    };
-    let avatar = fetch_image(&target.face()).await;
-
-    let input = crate::rankcard::CardInput {
-        username: &target.name,
-        avatar: avatar.as_ref(),
-        rank,
-        level,
-        xp: member.xp.max(0) as u64,
-        current_level_xp,
-        next_level_xp,
-        background: background.as_ref(),
-    };
-    Ok(crate::rankcard::render(&input))
-}
-
 /// Show a member's rank card: level, rank, XP and progress.
 #[poise::command(slash_command, prefix_command)]
 pub async fn rank(
@@ -61,56 +23,136 @@ pub async fn rank(
     rank_impl(ctx, user, text_mode, hidden).await
 }
 
-/// Shared rank implementation (also used by the Check XP context menu).
+/// Shared rank implementation — port of `showRank` in the original handler.
 async fn rank_impl(
     ctx: Context<'_>,
     user: Option<serenity::User>,
     text_mode: Option<bool>,
     hidden: Option<bool>,
 ) -> Result<(), crate::Error> {
-    let target = user.unwrap_or_else(|| ctx.author().clone());
     let Some(guild_id) = ctx.guild_id() else {
         poise::say_reply(ctx, "This command only works in servers.").await?;
         return Ok(());
     };
+    let gid = guild_id.get() as i64;
+    let target = user.unwrap_or_else(|| ctx.author().clone());
+    let settings = inochi_db::repos::get_settings(&ctx.data().pool, gid)
+        .await
+        .unwrap_or_default();
 
-    // Card rendering + CDN fetches can exceed the 3 s interaction window.
-    ctx.defer().await?;
-
-    if text_mode.unwrap_or(false) {
-        let gid = guild_id.get() as i64;
-        let member = inochi_db::members::get_member(&ctx.data().pool, gid, target.id.get() as i64).await?;
-        let rank = inochi_db::members::rank_of(&ctx.data().pool, gid, target.id.get() as i64).await?;
-        let curve = inochi_db::repos::get_settings(&ctx.data().pool, gid)
-            .await
-            .map(|s| s.curve)
-            .unwrap_or_default();
-        let level = curve.level_for_xp(member.xp.max(0) as u64);
-        let (current, needed) = curve.progress(member.xp.max(0) as u64);
-        let mut r = reply_ephemeral()
-            .content(format!(
-                "{} — **Level {level}** · {current}/{needed} XP · {} total",
-                target.mention(),
-                member.xp.max(0)
-            ));
-        if hidden.unwrap_or(false) {
-            r = r.ephemeral(true);
-        }
-        poise::send_reply(ctx, r).await?;
+    if !text_mode.unwrap_or(false) && !settings.rank_card.enabled {
+        poise::send_reply(
+            ctx,
+            reply_ephemeral().content("Rank cards are turned off in this server. A manager can enable them from the dashboard."),
+        )
+        .await?;
         return Ok(());
     }
 
-    let png = build_rank_card(ctx, guild_id.get() as i64, &target).await?;
-    let file = serenity::CreateAttachment::bytes(png, "rank.png");
-    let embed = serenity::CreateEmbed::new()
-        .image("attachment://rank.png")
-        .colour((0xd3, 0x3c, 0x1c));
-    let mut r = reply().embed(embed).attachment(file);
-    if hidden.unwrap_or(false) {
-        r = r.ephemeral(true);
+    let ephemeral = settings.rank_card.ephemeral || hidden.unwrap_or(false);
+    // Card rendering + CDN fetches can exceed the 3 s interaction window.
+    if ephemeral {
+        ctx.defer_ephemeral().await?;
+    } else {
+        ctx.defer().await?;
     }
-    poise::send_reply(ctx, r).await?;
+
+    let member = inochi_db::members::get_member(&ctx.data().pool, gid, target.id.get() as i64).await?;
+    if member.xp <= 0 {
+        let who = if target.id == ctx.author().id {
+            "You have".into()
+        } else {
+            format!("**{}** has", target.display_name())
+        };
+        poise::send_reply(
+            ctx,
+            reply_ephemeral().content(format!(
+                "{who} not earned any XP yet.\nSend a message in a channel where XP is enabled, then try again."
+            )),
+        )
+        .await?;
+        return Ok(());
+    }
+
+    let rank = inochi_db::members::rank_of(&ctx.data().pool, gid, target.id.get() as i64)
+        .await?
+        .unwrap_or(0);
+    let curve = &settings.curve;
+    let level = curve.level_for_xp(member.xp.max(0) as u64);
+    let current_level_xp = curve.xp_for_level(level);
+    let next_level_xp = curve.xp_to_next(level).saturating_add(current_level_xp);
+    let progress = if next_level_xp > current_level_xp {
+        ((member.xp.max(0) as u64 - current_level_xp) as f64
+            / (next_level_xp - current_level_xp).max(1) as f64)
+            .clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+
+    // Exact original text format: Name · Rank #n · Level n · X XP · p% to the next level
+    if text_mode.unwrap_or(false) {
+        poise::send_reply(
+            ctx,
+            reply().content(format!(
+                "**{}** · Rank **#{rank}** · Level **{level}** · **{} XP** · {}% to the next level",
+                target.display_name(),
+                member.xp.max(0),
+                (progress * 100.0).round() as u64
+            )),
+        )
+        .await?;
+        return Ok(());
+    }
+
+    // Background + avatar (CDN), then the card — plain attachment, no embed.
+    let background = match settings.rank_background_url.as_deref().filter(|u| !u.is_empty()) {
+        Some(url) => fetch_image(url).await,
+        None => None,
+    };
+    let avatar = fetch_image(&target.face()).await;
+
+    let accent = settings
+        .rank_accent_color
+        .as_deref()
+        .and_then(parse_hex_color)
+        .unwrap_or(VERMILION_DEFAULT);
+    let dn = target.display_name().to_string();
+    let input = crate::rankcard::CardInput {
+        username: &dn,
+        avatar: avatar.as_ref(),
+        rank: Some(rank),
+        level,
+        xp: member.xp.max(0) as u64,
+        current_level_xp: if settings.rank_card.relative_xp { current_level_xp } else { 0 },
+        next_level_xp,
+        background: background.as_ref(),
+        accent,
+        overlay: settings.rank_card.background_overlay as f32,
+        avatar_radius: match settings.rank_card.avatar_shape {
+            inochi_core::AvatarShape::Rounded => 6.0,
+            inochi_core::AvatarShape::Circle => 94.0,
+            inochi_core::AvatarShape::Square => 0.0,
+        },
+        technical_surface: settings.rank_card.surface == inochi_core::Surface::Technical,
+        glow: settings.rank_card.progress_style == inochi_core::ProgressStyle::Glow,
+    };
+    let png = crate::rankcard::render(&input);
+    let file = serenity::CreateAttachment::bytes(png, "rank.png");
+    poise::send_reply(ctx, reply().attachment(file)).await?;
     Ok(())
+}
+
+const VERMILION_DEFAULT: [u8; 3] = [0xd3, 0x3c, 0x1c];
+
+fn parse_hex_color(s: &str) -> Option<[u8; 3]> {
+    let h = s.trim().trim_start_matches('#');
+    if h.len() != 6 {
+        return None;
+    }
+    let r = u8::from_str_radix(&h[0..2], 16).ok()?;
+    let g = u8::from_str_radix(&h[2..4], 16).ok()?;
+    let b = u8::from_str_radix(&h[4..6], 16).ok()?;
+    Some([r, g, b])
 }
 
 /// Render the rank card image for a member.
@@ -119,17 +161,7 @@ pub async fn rankcard(
     ctx: Context<'_>,
     #[description = "Member to inspect (defaults to you)"] user: Option<serenity::User>,
 ) -> Result<(), crate::Error> {
-    let target = user.unwrap_or_else(|| ctx.author().clone());
-    let Some(guild_id) = ctx.guild_id() else {
-        poise::say_reply(ctx, "This command only works in servers.").await?;
-        return Ok(());
-    };
-    ctx.defer().await?;
-
-    let png = build_rank_card(ctx, guild_id.get() as i64, &target).await?;
-    let file = serenity::CreateAttachment::bytes(png, "rank.png");
-    poise::send_reply(ctx, reply().attachment(file)).await?;
-    Ok(())
+    rank_impl(ctx, user, None, None).await
 }
 
 /// Absolute XP leaderboard for this server.
@@ -997,18 +1029,47 @@ pub async fn calculate(
     Ok(())
 }
 
-/// Vote for Inochi on top.gg and earn bonus XP.
+/// Vote for Inochi on top.gg and activate your XP boost.
 #[poise::command(slash_command, prefix_command)]
 pub async fn vote(ctx: Context<'_>) -> Result<(), crate::Error> {
+    let Some(guild_id) = ctx.guild_id() else {
+        poise::say_reply(ctx, "This command only works in servers.").await?;
+        return Ok(());
+    };
+    let uid = ctx.author().id.get() as i64;
+    let settings = inochi_db::repos::get_settings(&ctx.data().pool, guild_id.get() as i64)
+        .await
+        .unwrap_or_default();
+    let boost = &settings.vote_boost;
+
+    let hours_left = inochi_db::keys::vote_hours_left(&ctx.data().pool, "topgg", uid)
+        .await
+        .unwrap_or(None);
+    if let Some(hours) = hours_left {
+        poise::say_reply(
+            ctx,
+            format!(
+                "Your vote boost is active — **{}× XP** for ~{} more hour(s).",
+                boost.multiplier, hours
+            ),
+        )
+        .await?;
+        return Ok(());
+    }
+    if !boost.enabled {
+        poise::say_reply(ctx, "Vote boosts are not enabled in this server.").await?;
+        return Ok(());
+    }
+
     let url = std::env::var("TOPGG_VOTE_URL").ok().filter(|v| !v.is_empty()).unwrap_or_else(|| {
         let client_id = std::env::var("DISCORD_CLIENT_ID").unwrap_or_default();
         format!("https://top.gg/bot/{client_id}/vote")
     });
-    let reward: i64 = std::env::var("TOPGG_VOTE_XP").ok().and_then(|v| v.parse().ok()).unwrap_or(250);
     let embed = serenity::CreateEmbed::new()
         .title("Vote for Inochi")
         .description(format!(
-            "[Click here to vote]({url}) — votes grant **{reward} XP** (once per week)."
+            "[Click here to vote]({url}) — voting grants **{}× XP** for **{} hours**.",
+            boost.multiplier, boost.duration_hours
         ))
         .colour((0x7C, 0xB4, 0xFF));
     poise::send_reply(ctx, reply().embed(embed)).await?;

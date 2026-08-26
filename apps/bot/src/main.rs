@@ -105,7 +105,14 @@ async fn on_message(
     } else {
         settings.xp_per_message
     };
-    let amount = settings.award_amount(base, channel_id, &role_ids) as i64;
+    let mut amount = settings.award_amount(base, channel_id, &role_ids) as i64;
+
+    // Active vote boost multiplies the gain.
+    if settings.vote_boost.enabled
+        && inochi_db::keys::active_vote(&data.pool, "topgg", user_id).await.unwrap_or(false)
+    {
+        amount = (amount as f64 * settings.vote_boost.multiplier).round() as i64;
+    }
 
     if let Some(row) = inochi_db::members::award_xp(
         &data.pool,

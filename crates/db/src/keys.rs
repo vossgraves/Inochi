@@ -68,36 +68,51 @@ pub async fn revoke_key(pool: &PgPool, id: i64) -> DbResult<bool> {
     Ok(res.rows_affected() > 0)
 }
 
-/// Record a top.gg vote; returns `true` when it earned a reward
-/// (first vote, or 7+ days since the previous one).
-///
-/// ponytail: check-then-insert races double webhooks into a double reward;
-/// add an advisory lock if vote spam ever matters.
-pub async fn record_vote(pool: &PgPool, user_id: i64) -> DbResult<bool> {
-    let recent: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM votes WHERE user_id = $1 AND last_vote_at > now() - interval '7 days')",
+/// Record a vote boost: active until `hours` after voting.
+pub async fn record_vote(
+    pool: &PgPool,
+    provider: &str,
+    user_id: i64,
+    hours: i64,
+) -> DbResult<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO external_votes (provider, user_id, voted_at, expires_at)
+        VALUES ($1, $2, now(), now() + make_interval(hours => $3))
+        ON CONFLICT (provider, user_id) DO UPDATE SET
+            voted_at = now(), expires_at = now() + make_interval(hours => $3)
+        "#,
     )
+    .bind(provider)
+    .bind(user_id)
+    .bind(hours)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Whether the user's vote boost is currently active.
+pub async fn active_vote(pool: &PgPool, provider: &str, user_id: i64) -> DbResult<bool> {
+    let active: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM external_votes WHERE provider = $1 AND user_id = $2 AND expires_at > now())",
+    )
+    .bind(provider)
     .bind(user_id)
     .fetch_one(pool)
     .await?;
-    if recent {
-        return Ok(false);
-    }
+    Ok(active)
+}
 
-    sqlx::query(
-        r#"
-        INSERT INTO votes (user_id, last_vote_at, streak)
-        VALUES ($1, now(), 1)
-        ON CONFLICT (user_id) DO UPDATE SET
-            last_vote_at = now(),
-            streak = CASE WHEN votes.last_vote_at >= now() - interval '14 days'
-                          THEN votes.streak + 1 ELSE 1 END
-        "#,
+/// Hours remaining on the boost, if active.
+pub async fn vote_hours_left(pool: &PgPool, provider: &str, user_id: i64) -> DbResult<Option<i64>> {
+    let row: Option<(Option<f64>,)> = sqlx::query_as(
+        "SELECT EXTRACT(EPOCH FROM (expires_at - now())) / 3600 FROM external_votes WHERE provider = $1 AND user_id = $2 AND expires_at > now()",
     )
+    .bind(provider)
     .bind(user_id)
-    .execute(pool)
+    .fetch_optional(pool)
     .await?;
-    Ok(true)
+    Ok(row.and_then(|(h,)| h.map(|v| v.ceil() as i64)))
 }
 
 /// Guilds the vote should credit (all registered guilds).

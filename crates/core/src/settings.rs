@@ -32,6 +32,10 @@ pub struct GuildSettings {
     pub rank_background_url: Option<String>,
     /// Rank card accent colour as `#rrggbb`; defaults to vermilion.
     pub rank_accent_color: Option<String>,
+    /// Rank card rendering options (port of `settings.rankCard`).
+    pub rank_card: RankCardSettings,
+    /// Vote boost: multiplier applied while a vote is active.
+    pub vote_boost: VoteBoost,
     /// Role granted to members when they join.
     pub join_role_id: Option<i64>,
     /// Whether threaded channels earn XP (default true).
@@ -41,6 +45,77 @@ pub struct GuildSettings {
     pub channel_allowlist: bool,
     pub multipliers: Vec<Multiplier>,
     pub blacklist: Blacklist,
+}
+
+/// Rank card rendering options (port of `settings.rankCard`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct RankCardSettings {
+    /// Whether /rank renders a card at all.
+    pub enabled: bool,
+    /// Whether card replies are ephemeral by default.
+    pub ephemeral: bool,
+    /// Show the progress bar relative to the current level instead of from zero.
+    pub relative_xp: bool,
+    /// Ink veil strength over background images (0..=0.95).
+    pub background_overlay: f64,
+    /// Avatar corner style.
+    pub avatar_shape: AvatarShape,
+    /// Card texture: measuring grid or clean.
+    pub surface: Surface,
+    /// Progress bar style.
+    pub progress_style: ProgressStyle,
+}
+
+impl Default for RankCardSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            ephemeral: false,
+            relative_xp: false,
+            background_overlay: 0.86,
+            avatar_shape: AvatarShape::Rounded,
+            surface: Surface::Technical,
+            progress_style: ProgressStyle::Glow,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AvatarShape {
+    Rounded,
+    Circle,
+    Square,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Surface {
+    Technical,
+    Clean,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProgressStyle {
+    Solid,
+    Glow,
+}
+
+/// Vote boost configuration (port of `settings.multipliers.vote`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct VoteBoost {
+    pub enabled: bool,
+    pub multiplier: f64,
+    pub duration_hours: i64,
+}
+
+impl Default for VoteBoost {
+    fn default() -> Self {
+        Self { enabled: false, multiplier: 2.0, duration_hours: 168 }
+    }
 }
 
 /// Randomized XP gain per qualifying message.
@@ -70,6 +145,8 @@ impl Default for GuildSettings {
             welcome_template: None,
             rank_background_url: None,
             rank_accent_color: None,
+            rank_card: RankCardSettings::default(),
+            vote_boost: VoteBoost::default(),
             join_role_id: None,
             xp_in_threads: true,
             channel_allowlist: false,

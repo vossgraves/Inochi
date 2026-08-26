@@ -399,10 +399,10 @@ async fn revoke_key_route(
 
 // ---------- top.gg votes ----------
 
-/// POST /webhooks/topgg — vote rewards.
+/// POST /webhooks/topgg — activates the vote boost.
 ///
-/// Enabled only when `TOPGG_WEBHOOK_SECRET` is set. Votes reward
-/// `TOPGG_VOTE_XP` (default 250) in every registered guild once per week.
+/// Enabled only when `TOPGG_WEBHOOK_SECRET` is set. A vote keeps
+/// `TOPGG_VOTE_HOURS` (default 168) of `vote_boost.multiplier` XP active.
 async fn topgg_webhook(
     State(state): SharedState,
     headers: HeaderMap,
@@ -432,17 +432,14 @@ async fn topgg_webhook(
         .parse()
         .map_err(|_| ApiError(StatusCode::BAD_REQUEST, "Invalid user".into()))?;
 
-    let mut rewarded = 0u32;
-    if !is_test && inochi_db::keys::record_vote(&state.pool, uid).await.map_err(api_db_error)? {
-        let xp: i64 = std::env::var("TOPGG_VOTE_XP")
+    if !is_test {
+        let hours: i64 = std::env::var("TOPGG_VOTE_HOURS")
             .ok()
             .and_then(|v| v.parse().ok())
-            .unwrap_or(250);
-        for guild in inochi_db::keys::registered_guilds(&state.pool).await.map_err(api_db_error)? {
-            if inochi_db::members::award_xp(&state.pool, guild, uid, xp, 0).await.is_ok() {
-                rewarded += 1;
-            }
-        }
+            .unwrap_or(168);
+        inochi_db::keys::record_vote(&state.pool, "topgg", uid, hours)
+            .await
+            .map_err(api_db_error)?;
     }
-    Ok(Json(serde_json::json!({ "accepted": true, "rewarded": rewarded })))
+    Ok(Json(serde_json::json!({ "accepted": true })))
 }

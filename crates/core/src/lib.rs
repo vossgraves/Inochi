@@ -9,5 +9,5 @@ pub mod settings;
 
 pub use curve::Curve;
 pub use settings::{
-    Blacklist, Gain, GuildSettings, Multiplier, MultiplierScope, Preset, SettingsError,
+    AvatarShape, Blacklist, Gain, GuildSettings, Multiplier, MultiplierScope, Preset, ProgressStyle, SettingsError, Surface,
 };
