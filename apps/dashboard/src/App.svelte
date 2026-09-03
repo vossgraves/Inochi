@@ -4,6 +4,7 @@
   import Leaderboard from './lib/Leaderboard.svelte'
   import Settings from './lib/Settings.svelte'
   import Audit from './lib/Audit.svelte'
+  import ApiKeys from './lib/ApiKeys.svelte'
   import { api, loginUrl } from './lib/api.js'
 
   let view = $state('leaderboard')
@@ -13,6 +14,7 @@
   const views = [
     ['leaderboard', 'Leaderboard'],
     ['settings', 'Settings'],
+    ['rewards', 'API & Rewards'],
     ['audit', 'Audit'],
     ['health', 'Health'],
   ]
@@ -66,7 +68,11 @@
     {/if}
   </label>
 
-  {#if !guildId.trim()}
+  {#if view === 'health'}
+    <Health />
+  {:else if view === 'rewards'}
+    <ApiKeys {guildId} />
+  {:else if !guildId.trim()}
     <p class="hint">
       {sessionChecked && !session
         ? 'Log in with Discord to pick a server, or enter a guild ID with an admin token.'
@@ -78,7 +84,5 @@
     <Settings {guildId} />
   {:else if view === 'audit'}
     <Audit {guildId} />
-  {:else}
-    <Health />
   {/if}
 </main>

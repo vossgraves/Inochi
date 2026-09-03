@@ -10,10 +10,83 @@ mod rankcard;
 
 use poise::serenity_prelude::{self as serenity, Mentionable};
 use sqlx::PgPool;
+use std::collections::HashMap;
+use std::sync::RwLock;
+use std::time::{Duration, Instant};
 
 /// Shared state handed to every command and event handler.
 pub struct Data {
     pub pool: PgPool,
+    /// Fast nanosecond in-memory cooldown filter: drops rapid chat spam
+    /// without sending queries to PostgreSQL.
+    pub cooldowns: RwLock<HashMap<(i64, i64), Instant>>,
+    /// In-memory guild settings cache (60s TTL): avoids querying the DB
+    /// on every single chat message in high-volume servers.
+    pub settings: RwLock<HashMap<i64, (inochi_core::GuildSettings, Instant)>>,
+}
+
+impl Data {
+    pub fn new(pool: PgPool) -> Self {
+        Self {
+            pool,
+            cooldowns: RwLock::new(HashMap::new()),
+            settings: RwLock::new(HashMap::new()),
+        }
+    }
+
+    /// Fast cached guild settings retrieval (60s TTL).
+    pub async fn get_cached_settings(
+        &self,
+        guild_id: i64,
+    ) -> Result<inochi_core::GuildSettings, inochi_db::DbError> {
+        let now = Instant::now();
+        if let Ok(cache) = self.settings.read() {
+            if let Some((settings, cached_at)) = cache.get(&guild_id) {
+                if now.duration_since(*cached_at) < Duration::from_secs(60) {
+                    return Ok(settings.clone());
+                }
+            }
+        }
+        let settings = inochi_db::repos::get_settings(&self.pool, guild_id).await?;
+        if let Ok(mut cache) = self.settings.write() {
+            cache.insert(guild_id, (settings.clone(), now));
+        }
+        Ok(settings)
+    }
+
+    /// Invalidate cache when settings are changed.
+    pub fn invalidate_settings(&self, guild_id: i64) {
+        if let Ok(mut cache) = self.settings.write() {
+            cache.remove(&guild_id);
+        }
+    }
+
+    /// Check if member is on cooldown. Returns false if message should be dropped.
+    pub fn is_cooldown_expired(&self, guild_id: i64, user_id: i64, cooldown_secs: u64) -> bool {
+        if cooldown_secs == 0 {
+            return true;
+        }
+        let now = Instant::now();
+        if let Ok(cache) = self.cooldowns.read() {
+            if let Some(last_awarded) = cache.get(&(guild_id, user_id)) {
+                if now.duration_since(*last_awarded) < Duration::from_secs(cooldown_secs) {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    /// Record timestamp of successful XP award.
+    pub fn record_awarded(&self, guild_id: i64, user_id: i64) {
+        let now = Instant::now();
+        if let Ok(mut cache) = self.cooldowns.write() {
+            if cache.len() > 20_000 {
+                cache.retain(|_, instant| now.duration_since(*instant) < Duration::from_secs(300));
+            }
+            cache.insert((guild_id, user_id), now);
+        }
+    }
 }
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
@@ -80,13 +153,19 @@ async fn on_message(
         }
     }
 
-    // Fetch validated settings for this guild.
-    let settings = match inochi_db::repos::get_settings(&data.pool, guild_id).await {
+    // Fetch validated settings for this guild (using fast 60s in-memory cache).
+    let settings = match data.get_cached_settings(guild_id).await {
         Ok(s) => s,
         // Guild never onboarded via /setup: nothing to do yet.
         Err(inochi_db::DbError::UnknownGuild(_)) => return Ok(()),
         Err(err) => return Err(err.into()),
     };
+
+    // Fast in-memory cooldown filter: drops chat spam in nanoseconds
+    // without hitting PostgreSQL.
+    if !data.is_cooldown_expired(guild_id, user_id, settings.cooldown_seconds as u64) {
+        return Ok(());
+    }
 
     let role_ids: Vec<i64> = {
         match message.member(&ctx.http).await {
@@ -154,6 +233,7 @@ async fn on_message(
                     .await;
             }
         }
+        data.record_awarded(guild_id, user_id);
         tracing::debug!(guild_id, user_id, amount, xp = row.xp, "awarded xp");
     }
     Ok(())
@@ -293,7 +373,7 @@ async fn main() {
                 tracing::info!(user = %_ready.user.name, "bot connected");
                 poise::builtins::register_globally(ctx, &framework.options().commands)
                     .await?;
-                Ok(Data { pool })
+                Ok(Data::new(pool))
             })
         })
         .build();

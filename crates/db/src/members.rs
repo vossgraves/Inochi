@@ -307,3 +307,90 @@ pub async fn rank_of(pool: &PgPool, guild_id: i64, user_id: i64) -> DbResult<Opt
     .await?;
     Ok(row.map(|(pos,)| pos))
 }
+
+/// Bulk fetch result for multiple members in a single query.
+#[derive(Debug, sqlx::FromRow)]
+pub struct BulkMember {
+    pub user_id: i64,
+    pub xp: i64,
+    pub weekly_xp: i64,
+    pub daily_streak: i32,
+    pub position: i64,
+}
+
+/// Fetch multiple members by their user IDs in a single query with their positions.
+pub async fn get_members_bulk(
+    pool: &PgPool,
+    guild_id: i64,
+    user_ids: &[i64],
+) -> DbResult<Vec<BulkMember>> {
+    if user_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let rows = sqlx::query_as::<_, BulkMember>(
+        r#"
+        WITH ranked AS (
+            SELECT user_id, xp, weekly_xp, daily_streak,
+                   ROW_NUMBER() OVER (ORDER BY xp DESC, user_id ASC)::bigint AS position
+            FROM members
+            WHERE guild_id = $1 AND xp > 0
+        )
+        SELECT user_id, xp, weekly_xp, daily_streak, position
+        FROM ranked
+        WHERE user_id = ANY($2)
+        ORDER BY position ASC
+        "#,
+    )
+    .bind(guild_id)
+    .bind(user_ids)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// Total count of active members with XP in a guild.
+pub async fn count_members(pool: &PgPool, guild_id: i64, weekly_only: bool) -> DbResult<i64> {
+    let count: (i64,) = if weekly_only {
+        sqlx::query_as(
+            r#"
+            SELECT COUNT(*)::bigint FROM members
+            WHERE guild_id = $1 AND weekly_xp > 0
+              AND week_start = date_trunc('week', now())::date
+            "#,
+        )
+        .bind(guild_id)
+        .fetch_one(pool)
+        .await?
+    } else {
+        sqlx::query_as("SELECT COUNT(*)::bigint FROM members WHERE guild_id = $1 AND xp > 0")
+            .bind(guild_id)
+            .fetch_one(pool)
+            .await?
+    };
+    Ok(count.0)
+}
+
+/// Guild-level leveling statistics.
+#[derive(Debug, sqlx::FromRow)]
+pub struct GuildStats {
+    pub total_members: i64,
+    pub total_xp: i64,
+    pub max_xp: i64,
+}
+
+pub async fn guild_stats(pool: &PgPool, guild_id: i64) -> DbResult<GuildStats> {
+    let stats = sqlx::query_as::<_, GuildStats>(
+        r#"
+        SELECT 
+            COUNT(*)::bigint AS total_members,
+            COALESCE(SUM(xp), 0)::bigint AS total_xp,
+            COALESCE(MAX(xp), 0)::bigint AS max_xp
+        FROM members
+        WHERE guild_id = $1 AND xp > 0
+        "#,
+    )
+    .bind(guild_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(stats)
+}

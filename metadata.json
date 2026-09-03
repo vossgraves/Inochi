@@ -1,0 +1,6 @@
+{
+  "name": "Inochi Discord Bot & API",
+  "description": "High-efficiency Rust Discord leveling bot and Amari-compatible REST API with interactive documentation and management dashboard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

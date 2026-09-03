@@ -55,6 +55,26 @@ export const api = {
       body: JSON.stringify({ label, guild_id: guildId || null }),
     }),
   listKeys: () => request('/api/keys'),
+
+  // V1 Amari-compatible endpoints & stats
+  guildStats: (guildId) => request(`/api/v1/guilds/${guildId}/stats`),
+  getRewards: (guildId) => request(`/api/v1/guilds/${guildId}/rewards`),
+  saveReward: (guildId, level, roleId) =>
+    request(`/api/v1/guilds/${guildId}/rewards`, {
+      method: 'POST',
+      body: JSON.stringify({ level, role_id: roleId }),
+    }),
+  deleteReward: (guildId, level) =>
+    request(`/api/v1/guilds/${guildId}/rewards/${level}`, {
+      method: 'DELETE',
+    }),
+  member: (guildId, userId) =>
+    request(`/api/v1/guilds/${guildId}/members/${userId}`),
+  bulkMembers: (guildId, uids) =>
+    request(`/api/v1/guilds/${guildId}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ members: uids }),
+    }),
 }
 
 export const loginUrl = () => `${BASE}/auth/login`
