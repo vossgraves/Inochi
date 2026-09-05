@@ -13,6 +13,12 @@ Implemented now:
   upsert (`INSERT … ON CONFLICT DO UPDATE … RETURNING`), so concurrent gateway
   events can never overwrite each other. Weekly XP resets automatically on ISO
   week rollover.
+- **Bounded hot-path caches** — settings use a 30-second TTL with a 20k-entry
+  ceiling and command-write invalidation; cooldowns are pruned and capped at
+  100k entries so memory remains predictable on cheap-RAM hosts.
+- **Scale review** — `docs/SCALE_RESEARCH.md` documents the 10k-guild plan,
+  Discord's shard requirement, cache policy, and the path from local ephemeral
+  games to coordinated rounds.
 - **Level curve** — MEE6-compatible curve in `crates/core`, unit-tested for
   cumulative/inverse consistency.
 - **Validated settings** — guild configuration stored as validated JSONB,

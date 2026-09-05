@@ -17,11 +17,11 @@ use std::time::{Duration, Instant};
 /// Shared state handed to every command and event handler.
 pub struct Data {
     pub pool: PgPool,
-    /// Fast nanosecond in-memory cooldown filter: drops rapid chat spam
-    /// without sending queries to PostgreSQL.
+    /// Fast in-memory cooldown filter: drops rapid chat spam without sending
+    /// queries to PostgreSQL. Entries are bounded and periodically pruned.
     pub cooldowns: RwLock<HashMap<(i64, i64), Instant>>,
-    /// In-memory guild settings cache (60s TTL): avoids querying the DB
-    /// on every single chat message in high-volume servers.
+    /// Bounded guild settings cache. A short TTL is a safety net; command
+    /// writes invalidate immediately so dashboard-like changes take effect.
     pub settings: RwLock<HashMap<i64, (inochi_core::GuildSettings, Instant)>>,
 }
 
@@ -34,7 +34,7 @@ impl Data {
         }
     }
 
-    /// Fast cached guild settings retrieval (60s TTL).
+    /// Fast cached guild settings retrieval (30s TTL, bounded to 20k guilds).
     pub async fn get_cached_settings(
         &self,
         guild_id: i64,
@@ -49,7 +49,15 @@ impl Data {
         }
         let settings = inochi_db::repos::get_settings(&self.pool, guild_id).await?;
         if let Ok(mut cache) = self.settings.write() {
-            cache.insert(guild_id, (settings.clone(), now));
+            // Remove stale entries before inserting so a long-lived process
+            // does not retain one settings document per departed guild.
+            cache.retain(|_, (_, cached_at)| now.duration_since(*cached_at) < Duration::from_secs(30));
+            if cache.len() >= 20_000 {
+                if let Some(oldest) = cache.iter().min_by_key(|(_, (_, at))| *at).map(|(id, _)| *id) {
+                    cache.remove(&oldest);
+                }
+            }
+            cache.insert(guild_id, (settings.clone(), Instant::now()));
         }
         Ok(settings)
     }
@@ -81,8 +89,15 @@ impl Data {
     pub fn record_awarded(&self, guild_id: i64, user_id: i64) {
         let now = Instant::now();
         if let Ok(mut cache) = self.cooldowns.write() {
-            if cache.len() > 20_000 {
+            // 100k entries is a deliberately conservative ceiling for a
+            // low-RAM deployment; stale entries are removed in the same lock.
+            if cache.len() >= 100_000 {
                 cache.retain(|_, instant| now.duration_since(*instant) < Duration::from_secs(300));
+                if cache.len() >= 100_000 {
+                    if let Some(oldest) = cache.iter().min_by_key(|(_, at)| *at).map(|(key, _)| *key) {
+                        cache.remove(&oldest);
+                    }
+                }
             }
             cache.insert((guild_id, user_id), now);
         }

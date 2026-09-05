@@ -283,6 +283,7 @@ pub async fn setup(ctx: Context<'_>) -> Result<(), crate::Error> {
         Some(ctx.author().id.get() as i64),
     )
     .await?;
+    ctx.data().invalidate_settings(gid);
 
     poise::say_reply(
         ctx,
@@ -1342,6 +1343,7 @@ pub async fn blacklist(
                 settings.blacklist.roles.push(id);
             }
             inochi_db::repos::put_settings(pool, gid, &settings, Some(ctx.author().id.get() as i64)).await?;
+            ctx.data().invalidate_settings(gid);
             poise::say_reply(ctx, format!("Members with <@&{id}> no longer earn XP.")).await?;
         }
         BlacklistAction::Remove => {
@@ -1351,6 +1353,7 @@ pub async fn blacklist(
             };
             settings.blacklist.roles.retain(|r| *r != id);
             inochi_db::repos::put_settings(pool, gid, &settings, Some(ctx.author().id.get() as i64)).await?;
+            ctx.data().invalidate_settings(gid);
             poise::say_reply(ctx, format!("<@&{id}> removed from the blacklist.")).await?;
         }
         BlacklistAction::Show => {
@@ -1430,6 +1433,7 @@ pub async fn multiplier(
         });
     }
     inochi_db::repos::put_settings(pool, gid, &settings, Some(ctx.author().id.get() as i64)).await?;
+            ctx.data().invalidate_settings(gid);
     let msg = if value > 0.0 {
         format!("<@&{id}> members now earn **{value}×** XP.")
     } else {
@@ -1488,6 +1492,7 @@ pub async fn xpchannel(
         _ => {}
     }
     inochi_db::repos::put_settings(pool, gid, &settings, Some(ctx.author().id.get() as i64)).await?;
+            ctx.data().invalidate_settings(gid);
     poise::say_reply(ctx, note).await?;
     Ok(())
 }
@@ -1724,6 +1729,7 @@ async fn update_setting(
     let mut settings = inochi_db::repos::get_settings(pool, gid).await.unwrap_or_default();
     mutate(&mut settings);
     inochi_db::repos::put_settings(pool, gid, &settings, Some(ctx.author().id.get() as i64)).await?;
+            ctx.data().invalidate_settings(gid);
     poise::say_reply(ctx, describe(&settings, settings.join_role_id)).await?;
     Ok(())
 }
