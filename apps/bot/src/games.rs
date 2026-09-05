@@ -31,6 +31,9 @@ const WORDS: &[&str] = &[
     "ladder", "magnet", "needle", "orchid", "pencil", "quartz", "ribbon",
 ];
 
+// Every word here has a recognizable local illustration in gamecard.rs.
+const IMAGE_WORDS: &[&str] = &["orange", "coffee", "planet", "castle"];
+
 const CAPITALS: &[(&str, &str)] = &[
     ("Japan", "tokyo"),
     ("France", "paris"),
@@ -219,7 +222,7 @@ pub fn new_round(kind: GameKind, rng: &mut impl Rng) -> Option<(String, String)>
             ))
         }
         GameKind::Word => {
-            let word = WORDS.choose(rng).expect("word list is not empty");
+            let word = IMAGE_WORDS.choose(rng).expect("image word list is not empty");
             Some(("Open the spoiler image and guess the word.".into(), (*word).into()))
         }
     }
