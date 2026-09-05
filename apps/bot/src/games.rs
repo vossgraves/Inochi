@@ -65,6 +65,8 @@ pub enum GameKind {
     Quiz,
     #[name = "reverse"]
     Reverse,
+    #[name = "word image"]
+    Word,
     #[name = "highest"]
     Highest,
 }
@@ -78,6 +80,7 @@ impl GameKind {
             Self::Math => "Quick math",
             Self::Quiz => "Quiz",
             Self::Reverse => "Reverse",
+            Self::Word => "Guess the word",
             Self::Highest => "Highest number",
         }
     }
@@ -214,6 +217,10 @@ pub fn new_round(kind: GameKind, rng: &mut impl Rng) -> Option<(String, String)>
                 format!("Type this word **backwards**: **{word}**"),
                 reversed,
             ))
+        }
+        GameKind::Word => {
+            let word = WORDS.choose(rng).expect("word list is not empty");
+            Some(("Open the spoiler image and guess the word.".into(), (*word).into()))
         }
     }
 }

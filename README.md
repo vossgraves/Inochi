@@ -25,7 +25,8 @@ Implemented now:
   identical rules in bot and dashboard; multipliers stack multiplicatively;
   channel/role blacklists.
 - **Bot commands** — `/setup`, `/rank`, `/rankcard` (rendered PNG),
-  `/top`, `/weekly`, `/play scramble|math` (chat games, 50 XP win bonus),
+  `/top`, `/weekly`, `/play scramble|math|quiz|reverse|word image` (chat games;
+  math cards and spoiler-hidden illustrated word cards; 50 XP win bonus),
   `/addxp` and `/importcsv` (manager-only), `/backup export|import`
   (manager-only), level-up announcements, per-guild cooldowns.
 - **Dashboard API** — axum server: `/api/health`, leaderboard, settings

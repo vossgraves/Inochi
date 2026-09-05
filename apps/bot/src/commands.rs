@@ -317,7 +317,7 @@ pub async fn help(ctx: Context<'_>) -> Result<(), crate::Error> {
         )
         .field(
             "Games",
-            "`/play scramble|math|quiz|reverse` — first answer wins\n`/play highest` — highest number wins\n`/coinflip [opponent] [wager] [side]` — solo or PvP wager\n`/bigtext` — emoji letters",
+            "`/play scramble|math|quiz|reverse` — first answer wins\n`/play word image` — spoiler image word guess\n`/play highest` — highest number wins\n`/coinflip [opponent] [wager] [side]` — solo or PvP wager\n`/bigtext` — emoji letters",
             false,
         )
         .field(
@@ -634,17 +634,35 @@ pub async fn play(
     let Some((prompt, answer)) = crate::games::new_round(game, &mut rand::thread_rng()) else {
         return Ok(());
     };
+    let attachment = match game {
+        crate::games::GameKind::Math => {
+            let expression = prompt
+                .strip_prefix("What is **")
+                .and_then(|value| value.strip_suffix("**?"))
+                .unwrap_or(&prompt);
+            Some(serenity::CreateAttachment::bytes(
+                crate::gamecard::math(expression),
+                "math.png",
+            ))
+        }
+        crate::games::GameKind::Word => Some(serenity::CreateAttachment::bytes(
+            crate::gamecard::word(&answer),
+            "SPOILER_guess-the-word.png",
+        )),
+        _ => None,
+    };
     crate::games::start(gid, cid, answer);
 
-    poise::say_reply(
-        ctx,
-        format!(
-            "**{}** — {prompt}\nFirst correct answer wins **{} XP**. You have 90 seconds.",
-            game.label(),
-            crate::games::WIN_XP
-        ),
-    )
-    .await?;
+    let content = format!(
+        "**{}** — {prompt}\nFirst correct answer wins **{} XP**. You have 90 seconds.",
+        game.label(),
+        crate::games::WIN_XP
+    );
+    let mut response = reply().content(content);
+    if let Some(file) = attachment {
+        response = response.attachment(file);
+    }
+    poise::send_reply(ctx, response).await?;
     Ok(())
 }
 

@@ -208,7 +208,9 @@ pub async fn callback(
     if let Some(list) = guilds.as_array() {
         for g in list {
             let owner = g["owner"].as_bool().unwrap_or(false);
-            let perms = g["permissions"].as_str().and_then(|p| i64::from_str_radix(p, 8).ok());
+            // Discord sends permission bitfields as decimal strings (not
+            // octal). Parsing as octal silently hid manageable guilds.
+            let perms = g["permissions"].as_str().and_then(|p| p.parse::<i64>().ok());
             let has_manage = g["permissions"].as_i64().map(|p| p & MANAGE_GUILD != 0).unwrap_or(false)
                 || perms.map(|p| p & MANAGE_GUILD != 0).unwrap_or(false);
             if owner || has_manage {

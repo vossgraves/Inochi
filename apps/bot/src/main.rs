@@ -5,6 +5,7 @@
 
 mod commands;
 mod games;
+mod gamecard;
 mod importers;
 mod rankcard;
 
@@ -42,7 +43,7 @@ impl Data {
         let now = Instant::now();
         if let Ok(cache) = self.settings.read() {
             if let Some((settings, cached_at)) = cache.get(&guild_id) {
-                if now.duration_since(*cached_at) < Duration::from_secs(60) {
+                if now.duration_since(*cached_at) < Duration::from_secs(30) {
                     return Ok(settings.clone());
                 }
             }
@@ -182,12 +183,19 @@ async fn on_message(
         return Ok(());
     }
 
-    let role_ids: Vec<i64> = {
-        match message.member(&ctx.http).await {
-            Ok(member) => member.roles.iter().map(|r| r.get() as i64).collect(),
-            Err(_) => Vec::new(),
-        }
-    };
+    // MESSAGE_CREATE normally arrives with the member in Serenity's cache.
+    // Avoiding an HTTP member lookup here is material at scale: this is the
+    // hottest path and role data only changes on member/role events.
+    let role_ids: Vec<i64> = message
+        .member
+        .as_ref()
+        .map(|member| member.roles.iter().map(|role| role.get() as i64).collect())
+        .or_else(|| {
+            ctx.cache
+                .member(message.guild_id.unwrap(), message.author.id)
+                .map(|member| member.roles.iter().map(|role| role.get() as i64).collect())
+        })
+        .unwrap_or_default();
     let is_thread = is_thread_channel(ctx, message.channel_id).await;
 
     if !settings.message_earns_xp(channel_id, &role_ids, is_thread) {
