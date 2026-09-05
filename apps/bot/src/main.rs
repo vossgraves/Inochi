@@ -406,14 +406,16 @@ async fn main() {
         .await
         .expect("client build failed");
 
-    // Keep the gateway alive; reconnects are handled by serenity.
+    // Ask Discord for the recommended shard count instead of pinning this
+    // process to one gateway connection. This is required beyond 2,500 guilds
+    // and lets the same binary scale to 10k+ guilds without a code change.
     let shard_manager = client.shard_manager.clone();
     tokio::spawn(async move {
         tokio::signal::ctrl_c().await.ok();
         shard_manager.shutdown_all().await;
     });
 
-    if let Err(err) = client.start().await {
+    if let Err(err) = client.start_autosharded().await {
         tracing::error!(%err, "gateway error");
         std::process::exit(1);
     }

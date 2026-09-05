@@ -31,8 +31,11 @@ Implemented now:
   (manager-only), level-up announcements, per-guild cooldowns.
 - **Dashboard API** — axum server: `/api/health`, leaderboard, settings
   get/put with audit trail, bearer-token auth, CORS.
-- **Svelte 5 dashboard** — leaderboard viewer (all-time/weekly), settings
-  editor with multiplier management, health/token panel.
+- **Svelte 5 dashboard** — monochrome Geist-inspired landing page with a
+  reduced-motion pulse scene, responsive leaderboard (all-time/weekly),
+  settings editor with multiplier management, health/token panel, audit log,
+  API keys and rewards. Lifecycle fetches are abortable and duplicate startup
+  loads are removed.
 
 Not yet ported from the TypeScript original: top.gg vote boosts (needs a
 top.gg token) and Discord OAuth session auth for the dashboard (phase 2 —

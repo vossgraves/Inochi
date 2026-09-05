@@ -48,7 +48,7 @@ export const api = {
       body: JSON.stringify({ settings, actor_id: actorId }),
     }),
   audit: (guildId) => request(`/api/guilds/${guildId}/audit`),
-  me: () => request('/auth/me'),
+  me: (options = {}) => request('/auth/me', options),
   createKey: (label, guildId) =>
     request('/api/keys', {
       method: 'POST',

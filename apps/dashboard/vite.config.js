@@ -6,6 +6,8 @@ export default defineConfig({
   server: {
     port: 3000,
     host: true,
+    // Arena previews use a generated *.e2b.app host.
+    allowedHosts: true,
   },
   build: {
     outDir: '../../dist',
