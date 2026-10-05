@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Guild configuration repository.
 
 use serde_json::Value;

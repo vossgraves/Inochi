@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Public v1 API: Amari-compatible leaderboards, member lookups, bulk queries,
 //! role rewards, guild statistics, OpenAPI specification, and interactive docs.
 

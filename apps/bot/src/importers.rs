@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Leaderboard message importers — Rust port of `packages/importers`.
 //!
 //! Point `/import scan` at a channel where another leveling bot posts its

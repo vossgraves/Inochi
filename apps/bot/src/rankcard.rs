@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Rank card renderer — faithful Rust port of `packages/rank-card/src/index.ts`.
 //!
 //! 960×300 "sumi ink" card: optional cover-cropped background with an ink

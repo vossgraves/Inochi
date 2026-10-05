@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Chat games, auto-generated every round.
 //!
 //! Q&A games (scramble, math, quiz, reverse): first correct answer in the

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Inochi core: pure leveling logic.
 //!
 //! No I/O lives here. The database layer (`inochi-db`) and the Discord bot

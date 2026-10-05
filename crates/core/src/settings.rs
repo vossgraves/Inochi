@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Validated guild settings stored as JSONB (mirrors `packages/core` upstream).
 //!
 //! Settings evolve frequently, so they are kept as one validated document per

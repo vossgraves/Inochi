@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Slash commands: `/rank`, `/rankcard`, `/top`, `/weekly`, `/play`,
 //! `/addxp`, `/backup export|import`.
 

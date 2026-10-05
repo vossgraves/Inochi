@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Level role rewards: roles granted automatically when members reach a
 //! level threshold.
 

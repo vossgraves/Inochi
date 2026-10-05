@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Member XP queries. The award path is a single atomic statement so
 //! concurrent gateway events can never clobber one another.
 

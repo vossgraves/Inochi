@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Discord OAuth login + stateless signed session cookies.
 //!
 //! Enabled only when `DISCORD_CLIENT_SECRET` is set; otherwise the routes

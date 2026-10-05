@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Thin API client.
 //
 // Auth: Discord OAuth session cookie when configured (see /auth/me), with

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Inochi dashboard API.
 //!
 //! Auth models: `ADMIN_TOKEN` bearer (full control), developer API keys

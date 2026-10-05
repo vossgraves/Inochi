@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Inochi database layer: PostgreSQL (Neon-compatible) via sqlx.
 
 pub mod backup;

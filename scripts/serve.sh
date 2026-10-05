@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Launch Inochi services detached from the invoking shell so they survive
 # the tool-call session ending. The API boots first because both processes
 # run migrations; concurrent runs can collide on the migrations bookkeeping.

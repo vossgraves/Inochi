@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Inochi Discord bot — Rust implementation of the leveling worker.
 //!
 //! Message XP is awarded through a single atomic PostgreSQL upsert; all level

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! The Inochi level curve — fully parametric, matching the original
 //! TypeScript engine (`packages/core/src/level.ts` + `presets.ts`).
 //!

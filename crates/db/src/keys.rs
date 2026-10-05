@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Developer API keys (hashed at rest) and top.gg vote records.
 
 use chrono::{DateTime, Utc};

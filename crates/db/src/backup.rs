@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Guild data export/import ("backups").
 //!
 //! Export produces a single self-describing JSON document; import restores it
