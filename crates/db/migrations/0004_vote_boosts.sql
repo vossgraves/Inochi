@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: GPL-3.0-or-later
 -- Vote boosts: a vote activates a multiplier until it expires (port of
 -- external_votes). Replaces the earlier weekly-reward votes table.
 

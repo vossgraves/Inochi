@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: GPL-3.0-or-later
 -- Developer API keys and top.gg vote tracking.
 
 CREATE TABLE IF NOT EXISTS api_keys (

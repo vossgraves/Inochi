@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: GPL-3.0-or-later
 -- Level rewards + daily streaks.
 -- level_roles: role granted automatically when a member reaches `level`.
 -- members.daily_* : /daily claim tracking (streak continues within 44h).

@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: GPL-3.0-or-later
 -- Inochi initial schema.
 -- Guild configuration lives in validated JSONB; member XP uses an atomic
 -- upsert so concurrent gateway events can never overwrite each other.
