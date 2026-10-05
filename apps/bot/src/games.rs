@@ -20,6 +20,9 @@ use rand::Rng;
 pub const ROUND_TIME: Duration = Duration::from_secs(90);
 /// Bonus XP for winning a round.
 pub const WIN_XP: i64 = 50;
+/// Hard safety cap: active rounds are tiny, but this prevents a compromised or
+/// unusually busy deployment from turning game state into an unbounded cache.
+const MAX_ACTIVE_ROUNDS: usize = 50_000;
 
 const WORDS: &[&str] = &[
     "inochi", "discord", "leaderboard", "karma", "neon", "server", "member",
@@ -28,6 +31,9 @@ const WORDS: &[&str] = &[
     "winter", "summer", "forest", "bridge", "circle", "hammer", "jacket",
     "ladder", "magnet", "needle", "orchid", "pencil", "quartz", "ribbon",
 ];
+
+// Every word here has a recognizable local illustration in gamecard.rs.
+const IMAGE_WORDS: &[&str] = &["orange", "coffee", "planet", "castle"];
 
 const CAPITALS: &[(&str, &str)] = &[
     ("Japan", "tokyo"),
@@ -63,6 +69,8 @@ pub enum GameKind {
     Quiz,
     #[name = "reverse"]
     Reverse,
+    #[name = "word image"]
+    Word,
     #[name = "highest"]
     Highest,
 }
@@ -76,6 +84,7 @@ impl GameKind {
             Self::Math => "Quick math",
             Self::Quiz => "Quiz",
             Self::Reverse => "Reverse",
+            Self::Word => "Guess the word",
             Self::Highest => "Highest number",
         }
     }
@@ -213,29 +222,49 @@ pub fn new_round(kind: GameKind, rng: &mut impl Rng) -> Option<(String, String)>
                 reversed,
             ))
         }
+        GameKind::Word => {
+            let word = IMAGE_WORDS.choose(rng).expect("image word list is not empty");
+            Some(("Open the spoiler image and guess the word.".into(), (*word).into()))
+        }
     }
 }
 
 /// Register a Q&A round for `(guild_id, channel_id)`.
 pub fn start(guild_id: i64, channel_id: i64, answer: String) {
     let mut map = ACTIVE.lock().expect("games mutex poisoned");
+    let now = Instant::now();
+    map.retain(|_, game| game.expires_at > now);
+    if map.len() >= MAX_ACTIVE_ROUNDS {
+        // Do not grow memory under load. The oldest expiry is the safest
+        // entry to evict because it has the least remaining player value.
+        if let Some(oldest) = map.iter().min_by_key(|(_, game)| game.expires_at).map(|(key, _)| *key) {
+            map.remove(&oldest);
+        }
+    }
     map.insert(
         (guild_id, channel_id),
-        ActiveGame { answer, expires_at: Instant::now() + ROUND_TIME },
+        ActiveGame { answer, expires_at: now + ROUND_TIME },
     );
 }
 
 /// Open a `highest` round. Returns `false` when one is already running.
 pub fn start_highest(guild_id: i64, channel_id: i64) -> bool {
     let mut map = HIGHEST.lock().expect("highest mutex poisoned");
+    let now = Instant::now();
     if let Some(r) = map.get(&(guild_id, channel_id)) {
-        if r.expires_at > Instant::now() {
+        if r.expires_at > now {
             return false;
+        }
+    }
+    map.retain(|_, round| round.expires_at > now);
+    if map.len() >= MAX_ACTIVE_ROUNDS {
+        if let Some(oldest) = map.iter().min_by_key(|(_, round)| round.expires_at).map(|(key, _)| *key) {
+            map.remove(&oldest);
         }
     }
     map.insert(
         (guild_id, channel_id),
-        HighestRound { expires_at: Instant::now() + ROUND_TIME, best: None },
+        HighestRound { expires_at: now + ROUND_TIME, best: None },
     );
     true
 }

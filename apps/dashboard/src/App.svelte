@@ -6,12 +6,14 @@
   import Settings from './lib/Settings.svelte'
   import Audit from './lib/Audit.svelte'
   import ApiKeys from './lib/ApiKeys.svelte'
+  import Landing from './lib/Landing.svelte'
   import { api, loginUrl } from './lib/api.js'
 
   let view = $state('leaderboard')
   let guildId = $state('')
   let session = $state(null)
   let sessionChecked = $state(false)
+  let showLanding = $state(true)
   const views = [
     ['leaderboard', 'Leaderboard'],
     ['settings', 'Settings'],
@@ -20,18 +22,26 @@
     ['health', 'Health'],
   ]
 
-  onMount(async () => {
+  onMount(() => {
+    const controller = new AbortController()
+    ;(async () => {
     try {
-      session = await api.me()
+      session = await api.me({ signal: controller.signal })
+      showLanding = false
       if (session.guilds?.length === 1) guildId = session.guilds[0].id
     } catch {
       session = null
     } finally {
       sessionChecked = true
     }
+    })()
+    return () => controller.abort()
   })
 </script>
 
+{#if !session && showLanding}
+  <Landing loginHref={loginUrl()} onLaunch={() => (showLanding = false)} />
+{:else}
 <header>
   <h1>Inochi</h1>
   <nav>
@@ -87,3 +97,4 @@
     <Audit {guildId} />
   {/if}
 </main>
+{/if}

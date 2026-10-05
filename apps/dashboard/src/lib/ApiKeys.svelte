@@ -1,6 +1,5 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <script>
-  import { onMount } from 'svelte'
   import { api } from './api'
 
   let { guildId } = $props()
@@ -83,10 +82,6 @@
 
   $effect(() => {
     if (guildId) loadAll()
-  })
-
-  onMount(() => {
-    loadAll()
   })
 </script>
 

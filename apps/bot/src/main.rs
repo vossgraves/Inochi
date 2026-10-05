@@ -6,6 +6,7 @@
 
 mod commands;
 mod games;
+mod gamecard;
 mod importers;
 mod rankcard;
 
@@ -18,11 +19,11 @@ use std::time::{Duration, Instant};
 /// Shared state handed to every command and event handler.
 pub struct Data {
     pub pool: PgPool,
-    /// Fast nanosecond in-memory cooldown filter: drops rapid chat spam
-    /// without sending queries to PostgreSQL.
+    /// Fast in-memory cooldown filter: drops rapid chat spam without sending
+    /// queries to PostgreSQL. Entries are bounded and periodically pruned.
     pub cooldowns: RwLock<HashMap<(i64, i64), Instant>>,
-    /// In-memory guild settings cache (60s TTL): avoids querying the DB
-    /// on every single chat message in high-volume servers.
+    /// Bounded guild settings cache. A short TTL is a safety net; command
+    /// writes invalidate immediately so dashboard-like changes take effect.
     pub settings: RwLock<HashMap<i64, (inochi_core::GuildSettings, Instant)>>,
 }
 
@@ -35,7 +36,7 @@ impl Data {
         }
     }
 
-    /// Fast cached guild settings retrieval (60s TTL).
+    /// Fast cached guild settings retrieval (30s TTL, bounded to 20k guilds).
     pub async fn get_cached_settings(
         &self,
         guild_id: i64,
@@ -43,14 +44,22 @@ impl Data {
         let now = Instant::now();
         if let Ok(cache) = self.settings.read() {
             if let Some((settings, cached_at)) = cache.get(&guild_id) {
-                if now.duration_since(*cached_at) < Duration::from_secs(60) {
+                if now.duration_since(*cached_at) < Duration::from_secs(30) {
                     return Ok(settings.clone());
                 }
             }
         }
         let settings = inochi_db::repos::get_settings(&self.pool, guild_id).await?;
         if let Ok(mut cache) = self.settings.write() {
-            cache.insert(guild_id, (settings.clone(), now));
+            // Remove stale entries before inserting so a long-lived process
+            // does not retain one settings document per departed guild.
+            cache.retain(|_, (_, cached_at)| now.duration_since(*cached_at) < Duration::from_secs(30));
+            if cache.len() >= 20_000 {
+                if let Some(oldest) = cache.iter().min_by_key(|(_, (_, at))| *at).map(|(id, _)| *id) {
+                    cache.remove(&oldest);
+                }
+            }
+            cache.insert(guild_id, (settings.clone(), Instant::now()));
         }
         Ok(settings)
     }
@@ -82,8 +91,15 @@ impl Data {
     pub fn record_awarded(&self, guild_id: i64, user_id: i64) {
         let now = Instant::now();
         if let Ok(mut cache) = self.cooldowns.write() {
-            if cache.len() > 20_000 {
+            // 100k entries is a deliberately conservative ceiling for a
+            // low-RAM deployment; stale entries are removed in the same lock.
+            if cache.len() >= 100_000 {
                 cache.retain(|_, instant| now.duration_since(*instant) < Duration::from_secs(300));
+                if cache.len() >= 100_000 {
+                    if let Some(oldest) = cache.iter().min_by_key(|(_, at)| *at).map(|(key, _)| *key) {
+                        cache.remove(&oldest);
+                    }
+                }
             }
             cache.insert((guild_id, user_id), now);
         }
@@ -168,12 +184,19 @@ async fn on_message(
         return Ok(());
     }
 
-    let role_ids: Vec<i64> = {
-        match message.member(&ctx.http).await {
-            Ok(member) => member.roles.iter().map(|r| r.get() as i64).collect(),
-            Err(_) => Vec::new(),
-        }
-    };
+    // MESSAGE_CREATE normally arrives with the member in Serenity's cache.
+    // Avoiding an HTTP member lookup here is material at scale: this is the
+    // hottest path and role data only changes on member/role events.
+    let role_ids: Vec<i64> = message
+        .member
+        .as_ref()
+        .map(|member| member.roles.iter().map(|role| role.get() as i64).collect())
+        .or_else(|| {
+            ctx.cache
+                .member(message.guild_id.unwrap(), message.author.id)
+                .map(|member| member.roles.iter().map(|role| role.get() as i64).collect())
+        })
+        .unwrap_or_default();
     let is_thread = is_thread_channel(ctx, message.channel_id).await;
 
     if !settings.message_earns_xp(channel_id, &role_ids, is_thread) {
@@ -384,14 +407,16 @@ async fn main() {
         .await
         .expect("client build failed");
 
-    // Keep the gateway alive; reconnects are handled by serenity.
+    // Ask Discord for the recommended shard count instead of pinning this
+    // process to one gateway connection. This is required beyond 2,500 guilds
+    // and lets the same binary scale to 10k+ guilds without a code change.
     let shard_manager = client.shard_manager.clone();
     tokio::spawn(async move {
         tokio::signal::ctrl_c().await.ok();
         shard_manager.shutdown_all().await;
     });
 
-    if let Err(err) = client.start().await {
+    if let Err(err) = client.start_autosharded().await {
         tracing::error!(%err, "gateway error");
         std::process::exit(1);
     }

@@ -28,9 +28,9 @@ In standard bots, every single message triggers a database read and write. In In
 
 ### B. In-Memory Guild Settings Cache
 Guild settings (custom level curves, multipliers, channel blacklists, roles) rarely change.
-- Inochi caches validated `GuildSettings` in memory with a 60-second TTL.
+- Inochi caches validated `GuildSettings` in memory with a 30-second TTL.
 - When an active server processes hundreds of messages per second, they all reference the in-memory cache concurrently using fast read locks (`RwLock`).
-- Memory cache automatically purges stale entries to keep memory footprint capped under 25MB.
+- The cache purges stale entries before inserts, evicts the oldest entry at a 20,000-guild ceiling, and bot command writes invalidate immediately. This avoids an unbounded one-entry-per-guild leak on cheap-RAM hosts.
 
 ### C. Atomic PostgreSQL CTE Upserts
 Concurrent gateway events from the same user across multiple shards or channels can cause data races if handled with naive `SELECT ... UPDATE` queries.

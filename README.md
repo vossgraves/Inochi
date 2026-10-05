@@ -13,19 +13,29 @@ Implemented now:
   upsert (`INSERT … ON CONFLICT DO UPDATE … RETURNING`), so concurrent gateway
   events can never overwrite each other. Weekly XP resets automatically on ISO
   week rollover.
+- **Bounded hot-path caches** — settings use a 30-second TTL with a 20k-entry
+  ceiling and command-write invalidation; cooldowns are pruned and capped at
+  100k entries so memory remains predictable on cheap-RAM hosts.
+- **Scale review** — `docs/SCALE_RESEARCH.md` documents the 10k-guild plan,
+  Discord's shard requirement, cache policy, and the path from local ephemeral
+  games to coordinated rounds.
 - **Level curve** — MEE6-compatible curve in `crates/core`, unit-tested for
   cumulative/inverse consistency.
 - **Validated settings** — guild configuration stored as validated JSONB,
   identical rules in bot and dashboard; multipliers stack multiplicatively;
   channel/role blacklists.
 - **Bot commands** — `/setup`, `/rank`, `/rankcard` (rendered PNG),
-  `/top`, `/weekly`, `/play scramble|math` (chat games, 50 XP win bonus),
+  `/top`, `/weekly`, `/play scramble|math|quiz|reverse|word image` (chat games;
+  math cards and spoiler-hidden illustrated word cards; 50 XP win bonus),
   `/addxp` and `/importcsv` (manager-only), `/backup export|import`
   (manager-only), level-up announcements, per-guild cooldowns.
 - **Dashboard API** — axum server: `/api/health`, leaderboard, settings
   get/put with audit trail, bearer-token auth, CORS.
-- **Svelte 5 dashboard** — leaderboard viewer (all-time/weekly), settings
-  editor with multiplier management, health/token panel.
+- **Svelte 5 dashboard** — monochrome Geist-inspired landing page with a
+  reduced-motion pulse scene, responsive leaderboard (all-time/weekly),
+  settings editor with multiplier management, health/token panel, audit log,
+  API keys and rewards. Lifecycle fetches are abortable and duplicate startup
+  loads are removed.
 
 Not yet ported from the TypeScript original: top.gg vote boosts (needs a
 top.gg token) and Discord OAuth session auth for the dashboard (phase 2 —
