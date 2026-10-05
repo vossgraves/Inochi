@@ -88,3 +88,7 @@ cd apps/dashboard && npm run build
   upstream.
 - Guild XP stays paused until settings exist for that guild (the bot ignores
   unknown guilds until the first save or `/addxp`).
+
+## License
+
+Inochi is licensed under the [GNU GPL v3](LICENSE) (GPL-3.0-or-later).
